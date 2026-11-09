@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101a19">
+  <title>Зомби: поймай зуд!</title>
+  <style>
+    :root{color-scheme:dark;--ink:#f3f5dc;--muted:#aeb9a3;--lime:#c8f169;--panel:#172321}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:clamp(10px,2.6vw,28px);font-family:ui-rounded,"Trebuchet MS",system-ui,sans-serif;color:var(--ink);background:radial-gradient(ellipse at 50% 0%,#263d32 0,#111b19 58%,#0b1112 100%);overflow-x:hidden}
+    .game{width:min(100%,1040px);display:grid;gap:14px}
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 4px}
+    .brand{display:flex;align-items:center;gap:12px}.brand-icon{width:44px;height:44px;display:grid;place-items:center;border-radius:14px;background:#d3fb73;color:#1b291c;font-size:25px;box-shadow:0 5px 20px #c8f16933}
+    h1{font-size:clamp(18px,3vw,26px);margin:0;letter-spacing:-.04em}.tag{font-size:12px;color:var(--muted);margin-top:3px}
+    .sound{border:1px solid #536457;background:#1a2824;color:var(--ink);border-radius:12px;padding:10px 12px;font:inherit;font-size:14px;cursor:pointer}
+    .hud{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .stat{flex:1;background:#192521;border:1px solid #33443b;border-radius:14px;padding:10px 14px;min-width:0}.stat-label{font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#9eae9d}.stat-value{font-size:clamp(19px,4vw,25px);font-weight:900;color:#f5ffd9;line-height:1.15}.stat-value small{font-size:12px;color:#b8c5ac;font-weight:600}
+    .meter{height:5px;border-radius:9px;background:#33443b;margin-top:8px;overflow:hidden}.meter i{height:100%;display:block;background:linear-gradient(90deg,#d2f66d,#62dc9d);width:100%;transition:width .12s linear}
+    .stage{position:relative;overflow:hidden;border:1px solid #52634e;border-radius:22px;background:#182621;box-shadow:0 24px 70px #0008;touch-action:none}
+    canvas{display:block;width:100%;height:auto;aspect-ratio:3/2;touch-action:none;cursor:crosshair}
+    .tip{margin:0;text-align:center;color:#aab8a7;font-size:13px}.tip b{color:#e8f4cf}
+    .overlay{position:absolute;inset:0;display:grid;place-items:center;padding:18px;background:linear-gradient(#10171366,#101713bb);backdrop-filter:blur(4px)}
+    .card{width:min(410px,100%);text-align:center;padding:clamp(20px,5vw,34px);border:1px solid #667755;border-radius:22px;background:#17231fee;box-shadow:0 18px 60px #0009}
+    .badge{display:inline-block;background:#d4f274;color:#1b291b;font-size:11px;font-weight:900;letter-spacing:.11em;padding:6px 10px;border-radius:20px;text-transform:uppercase}
+    .card h2{font-size:clamp(27px,6vw,42px);line-height:.98;letter-spacing:-.06em;margin:15px 0 10px}.card p{color:#c3cebc;line-height:1.5;margin:0 auto 20px;max-width:320px;font-size:14px}
+    .play{border:0;border-radius:14px;background:#d1f36f;color:#17231b;font:inherit;font-weight:900;font-size:16px;padding:14px 22px;min-width:170px;cursor:pointer;box-shadow:0 7px 0 #8eae42;transition:transform .12s,box-shadow .12s}.play:active{transform:translateY(4px);box-shadow:0 3px 0 #8eae42}
+    .chips{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:17px}.chips span{font-size:11px;color:#d4dfca;background:#25342e;padding:6px 9px;border-radius:20px}
+    @media(max-width:520px){body{padding:10px}.game{gap:10px}.brand-icon{width:38px;height:38px}.stat{padding:8px 10px}.hud{gap:6px}.stat-label{font-size:9px}.stage{border-radius:16px}.tip{font-size:11px}}
+  </style>
+</head>
+<body>
+  <main class="game">
+    <header>
+      <div class="brand"><div class="brand-icon">🧟</div><div><h1>Зомби: поймай зуд!</h1><div class="tag">Ночная смена на кладбище</div></div></div>
+      <button class="sound" id="soundBtn" aria-label="Включить или выключить звук">🔊 Звук</button>
+    </header>
+    <section class="hud" aria-label="Игровая статистика">
+      <div class="stat"><div class="stat-label">Почесал</div><div class="stat-value" id="score">0 <small>раз</small></div></div>
+      <div class="stat"><div class="stat-label">Серия</div><div class="stat-value" id="combo">×1</div></div>
+      <div class="stat"><div class="stat-label">Время</div><div class="stat-value" id="time">45<small>с</small></div><div class="meter"><i id="timebar"></i></div></div>
+    </section>
+    <section class="stage">
+      <canvas id="gameCanvas" width="900" height="600" aria-label="Игровое поле: нажимайте на светящиеся зудящие места на зомби"></canvas>
+      <div class="overlay" id="overlay">
+        <div class="card"><span class="badge" id="badge">Мини-игра · 45 секунд</span><h2 id="cardTitle">Ох, опять<br>зудит!</h2><p id="cardText">Помоги Зомби-Кеше почесать зудящие места. Жми на светящиеся пятнышки — только не промахивайся!</p><button class="play" id="playBtn">Начать чесаться</button><div class="chips"><span>👆 Тапай по зуду</span><span>⚡ Собирай серию</span><span>🪰 Не бей мух</span></div></div>
+      </div>
+    </section>
+    <p class="tip"><b>Как играть:</b> нажимай на жёлтые вспышки на зомби. Быстрые точные попадания дают комбо!</p>
+  </main>
+<script>
+(()=>{
+  const canvas=document.getElementById('gameCanvas'),ctx=canvas.getContext('2d');
+  const scoreEl=document.getElementById('score'),comboEl=document.getElementById('combo'),timeEl=document.getElementById('time'),bar=document.getElementById('timebar');
+  const overlay=document.getElementById('overlay'),playBtn=document.getElementById('playBtn'),titleEl=document.getElementById('cardTitle'),textEl=document.getElementById('cardText'),badgeEl=document.getElementById('badge'),soundBtn=document.getElementById('soundBtn');
+  const W=900,H=600,DURATION=45;
+  let running=false,score=0,combo=0,timeLeft=DURATION,last=0,spawn=0,target=null,flies=[],particles=[],soundOn=true,audio=null,shake=0;
+  const spots=[{x:450,y:260},{x:375,y:325},{x:520,y:350},{x:435,y:390},{x:570,y:440},{x:340,y:450},{x:465,y:485},{x:425,y:175},{x:510,y:230}];
+  function resize(){const dpr=Math.min(devicePixelRatio||1,2);canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+  window.addEventListener('resize',resize);resize();
+  function rounded(x,y,w,h,r,fill,stroke){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fillStyle=fill;ctx.fill();if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=3;ctx.stroke()}}
+  function drawBackground(t){
+    const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#1c3732');g.addColorStop(.63,'#354837');g.addColorStop(1,'#18251d');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#f0e9b5';ctx.beginPath();ctx.arc(722,105,46,0,Math.PI*2);ctx.fill();ctx.fillStyle='#263a34';ctx.beginPath();ctx.arc(740,89,42,0,Math.PI*2);ctx.fill();
+    for(let i=0;i<38;i++){const x=(i*173+37)%900,y=(i*97+21)%300;ctx.fillStyle=`rgba(231,245,177,${.2+.22*Math.sin(t*1.5+i)})`;ctx.beginPath();ctx.arc(x,y,1.3,0,Math.PI*2);ctx.fill()}
+    ctx.fillStyle='#20332a';ctx.beginPath();ctx.moveTo(0,295);for(let x=0;x<=900;x+=80)ctx.lineTo(x,270+Math.sin(x*.018)*22);ctx.lineTo(900,600);ctx.lineTo(0,600);ctx.fill();
+    for(let i=0;i<7;i++){const x=35+i*140+(i%2)*30,y=340+(i%3)*32;ctx.fillStyle='#697766';ctx.beginPath();ctx.roundRect(x,y,72,98,22);ctx.fill();ctx.fillStyle='#8c987e';ctx.fillRect(x+10,y+20,52,4);ctx.fillRect(x+33,y+10,5,27);ctx.fillStyle='#3d5143';ctx.fillRect(x+6,y+88,60,8)}
+    for(let i=0;i<10;i++){let x=(i*103+18)%900,y=525+(i%3)*17;ctx.strokeStyle='#829366';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x,y+20);ctx.quadraticCurveTo(x-7,y+3,x-12,y);ctx.moveTo(x,y+20);ctx.quadraticCurveTo(x+7,y+3,x+13,y+4);ctx.stroke()}
+  }
+  function drawZombie(t){
+    ctx.save();if(shake>0){ctx.translate(Math.sin(t*70)*shake,Math.cos(t*63)*shake)}
+    // shadow
+    ctx.fillStyle='#10191488';ctx.beginPath();ctx.ellipse(452,535,170,26,0,0,Math.PI*2);ctx.fill();
+    // legs
+    rounded(385,455,65,87,20,'#3f7350','#244331');rounded(458,455,65,87,20,'#4e8055','#244331');
+    rounded(366,521,92,42,18,'#5e4936','#342b24');rounded(448,521,92,42,18,'#5e4936','#342b24');
+    // torso
+    rounded(344,265,215,220,63,'#568657','#294632');
+    // torn shirt
+    ctx.fillStyle='#738a52';ctx.beginPath();ctx.moveTo(353,325);ctx.lineTo(450,305);ctx.lineTo(550,328);ctx.lineTo(540,461);ctx.lineTo(510,453);ctx.lineTo(490,468);ctx.lineTo(462,452);ctx.lineTo(433,470);ctx.lineTo(411,451);ctx.lineTo(370,462);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#9bae6e';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(397,337);ctx.lineTo(424,374);ctx.lineTo(404,405);ctx.moveTo(497,340);ctx.lineTo(475,371);ctx.lineTo(503,396);ctx.stroke();
+    // arms
+    ctx.lineCap='round';ctx.strokeStyle='#568657';ctx.lineWidth=40;ctx.beginPath();ctx.moveTo(357,315);ctx.quadraticCurveTo(313,369,331,432);ctx.moveTo(548,315);ctx.quadraticCurveTo(589,370,566,432);ctx.stroke();
+    ctx.strokeStyle='#294632';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(357,315);ctx.quadraticCurveTo(313,369,331,432);ctx.moveTo(548,315);ctx.quadraticCurveTo(589,370,566,432);ctx.stroke();
+    // stitches and patches
+    ctx.fillStyle='#d2c06f';ctx.beginPath();ctx.ellipse(337,401,13,20,-.3,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#574c35';ctx.lineWidth=2;for(let i=0;i<3;i++){ctx.beginPath();ctx.moveTo(329+i*7,393);ctx.lineTo(336+i*7,407);ctx.stroke()}
+    // neck and head
+    rounded(411,221,77,68,22,'#548354','#294632');
+    ctx.fillStyle='#5e925f';ctx.beginPath();ctx.ellipse(450,181,91,93,0,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#294632';ctx.lineWidth=5;ctx.stroke();
+    // hair
+    ctx.fillStyle='#26382d';ctx.beginPath();ctx.moveTo(366,165);ctx.quadraticCurveTo(357,91,423,83);ctx.quadraticCurveTo(487,62,529,111);ctx.lineTo(522,145);ctx.quadraticCurveTo(479,119,444,133);ctx.quadraticCurveTo(400,110,366,165);ctx.fill();
+    // ears
+    ctx.fillStyle='#5e925f';ctx.beginPath();ctx.ellipse(362,186,15,23,-.2,0,Math.PI*2);ctx.ellipse(539,186,15,23,.2,0,Math.PI*2);ctx.fill();
+    // eyes
+    ctx.fillStyle='#d9e8a4';ctx.beginPath();ctx.ellipse(415,178,19,23,0,0,Math.PI*2);ctx.ellipse(482,178,19,23,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#263b2c';ctx.beginPath();ctx.arc(419,182,7,0,Math.PI*2);ctx.arc(478,182,7,0,Math.PI*2);ctx.fill();
+    // brow / nose / mouth
+    ctx.strokeStyle='#2e4933';ctx.lineWidth=7;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(392,149);ctx.lineTo(427,155);ctx.moveTo(469,153);ctx.lineTo(506,145);ctx.stroke();
+    ctx.fillStyle='#416d4a';ctx.beginPath();ctx.ellipse(450,204,13,18,0,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#253b2d';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(418,228);ctx.quadraticCurveTo(451,248,484,226);ctx.stroke();ctx.fillStyle='#e2dba9';ctx.fillRect(432,231,13,9);ctx.fillRect(456,232,13,9);
+    // ear bolt
+    ctx.fillStyle='#d2c06f';ctx.beginPath();ctx.arc(548,199,7,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+  }
+  function drawTarget(t){if(!target)return;const p=target;const pulse=1+Math.sin(t*8)*.1;ctx.save();ctx.translate(p.x,p.y);ctx.scale(pulse,pulse);
+    ctx.strokeStyle='#ffe876';ctx.lineWidth=5;ctx.shadowColor='#ffe876';ctx.shadowBlur=24;ctx.beginPath();ctx.arc(0,0,27,0,Math.PI*2);ctx.stroke();ctx.fillStyle='#ffdc55';ctx.beginPath();ctx.arc(0,0,17,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;ctx.fillStyle='#45391b';ctx.font='bold 22px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('✦',0,1);
+    for(let i=0;i<3;i++){const a=t*3+i*2.1;ctx.fillStyle='#fff0a0';ctx.beginPath();ctx.arc(Math.cos(a)*37,Math.sin(a)*37,3,0,Math.PI*2);ctx.fill()}ctx.restore()}
+  function drawFlies(t){for(const f of flies){const x=f.x+Math.sin(t*7+f.phase)*8,y=f.y+Math.cos(t*8+f.phase)*7;ctx.fillStyle='#f4dd6c';ctx.shadowColor='#f4dd6c';ctx.shadowBlur=12;ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;ctx.strokeStyle='#dad7a5';ctx.lineWidth=2;ctx.beginPath();ctx.ellipse(x-4,y-5,4,2,-.5,0,Math.PI*2);ctx.ellipse(x+4,y-5,4,2,.5,0,Math.PI*2);ctx.stroke()}}
+  function drawParticles(dt){particles=particles.filter(p=>p.life>0);for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=35*dt;p.life-=dt;ctx.globalAlpha=Math.max(0,p.life/.7);ctx.fillStyle=p.color;ctx.font=`bold ${p.size}px sans-serif`;ctx.textAlign='center';ctx.fillText(p.char,p.x,p.y)}ctx.globalAlpha=1}
+  function render(t,dt){drawBackground(t);drawZombie(t);drawFlies(t);drawTarget(t);drawParticles(dt);if(shake>0)shake=Math.max(0,shake-dt*18)}
+  function spawnTarget(){const s=spots[Math.floor(Math.random()*spots.length)];target={x:s.x+(Math.random()-.5)*18,y:s.y+(Math.random()-.5)*18,life:2.5};}
+  function addParticles(x,y,good=true){const chars=good?['✦','+1','✨']:['…','💨'];for(let i=0;i<(good?9:5);i++){particles.push({x,y,vx:(Math.random()-.5)*150,vy:-40-Math.random()*130,life:.45+Math.random()*.4,size:good?14+Math.random()*10:17,color:good?'#ffe87b':'#c5d0bd',char:chars[i%chars.length]})}}
+  function beep(freq=520,dur=.07){if(!soundOn)return;try{audio=audio||new(window.AudioContext||window.webkitAudioContext)();const o=audio.createOscillator(),g=audio.createGain();o.connect(g);g.connect(audio.destination);o.frequency.value=freq;o.type='sine';g.gain.setValueAtTime(.055,audio.currentTime);g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+dur);o.start();o.stop(audio.currentTime+dur)}catch(_){}}
+  function updateHud(){scoreEl.innerHTML=`${score} <small>раз</small>`;comboEl.textContent=`×${Math.max(1,combo)}`;timeEl.innerHTML=`${Math.ceil(timeLeft)}<small>с</small>`;bar.style.width=`${Math.max(0,timeLeft/DURATION*100)}%`;bar.style.background=timeLeft<10?'#ff785f':'linear-gradient(90deg,#d2f66d,#62dc9d)' }
+  function stop(){running=false;target=null;overlay.hidden=false;badgeEl.textContent='Смена окончена';titleEl.innerHTML=score>22?'Ну ты и чесатель!':'Зуд побеждён!';textEl.textContent=`За 45 секунд ты почесал ${score} ${score===1?'место':'мест'}. ${score>22?'Зомби-Кеша официально доволен.':'Попробуй ещё раз и побей свой рекорд!'}`;playBtn.textContent='Ещё раунд';}
+  function start(){score=0;combo=0;timeLeft=DURATION;spawn=.3;target=null;flies=[];particles=[];running=true;last=performance.now()/1000;overlay.hidden=true;updateHud()}
+  function frame(ms){const t=ms/1000,dt=Math.min(.04,last?t-last:0);last=t;if(running){timeLeft-=dt;spawn-=dt;if(spawn<=0){if(!target)spawnTarget();else{target.life-=dt;if(target.life<=0){target=null;combo=0;spawn=.25+Math.random()*.35}}}if(Math.random()<dt*.55)flies.push({x:120+Math.random()*660,y:130+Math.random()*380,phase:Math.random()*8});flies=flies.filter(f=>{f.life=(f.life||0)+dt;return f.life<2.8});if(timeLeft<=0){timeLeft=0;updateHud();stop()}else updateHud()}render(t,dt);requestAnimationFrame(frame)}
+  function pointer(e){const r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H}}
+  canvas.addEventListener('pointerdown',e=>{if(!running)return;e.preventDefault();const p=pointer(e);if(target&&Math.hypot(p.x-target.x,p.y-target.y)<43){score++;combo++;timeLeft=Math.min(DURATION,timeLeft+.12);addParticles(target.x,target.y);beep(440+Math.min(combo,12)*35);target=null;spawn=.28;updateHud()}else{combo=0;shake=3;addParticles(p.x,p.y,false);beep(170,.09);updateHud()}});
+  playBtn.addEventListener('click',start);soundBtn.addEventListener('click',()=>{soundOn=!soundOn;soundBtn.textContent=soundOn?'🔊 Звук':'🔇 Без звука';if(soundOn)beep(600)});
+  window.addEventListener('keydown',e=>{if((e.code==='Enter'||e.code==='Space')&&!running){e.preventDefault();start()}if(e.code==='KeyM'){soundBtn.click()}});
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
