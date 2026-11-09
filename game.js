@@ -18,14 +18,17 @@ const hud = {
 
 const THREE = window.THREE;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.7));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false;
 renderer.outputEncoding = THREE.sRGBEncoding;
-renderer.setClearColor(0x071116);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.9;
+renderer.setClearColor(0x080c0e);
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x071116);
-scene.fog = new THREE.Fog(0x071116, 22, 52);
+scene.background = new THREE.Color(0x080c0e);
+scene.fog = new THREE.Fog(0x080c0e, 18, 54);
 const camera = new THREE.OrthographicCamera(-10, 10, 7, -7, 0.1, 150);
 camera.position.set(0, 32, 22);
 camera.lookAt(0, 0, 0);
@@ -34,9 +37,9 @@ const cameraPosition = new THREE.Vector3();
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const mouseNdc = new THREE.Vector2();
-const ambient = new THREE.HemisphereLight(0xb8d8d0, 0x26343a, 2.8);
+const ambient = new THREE.HemisphereLight(0xb8d8d0, 0x26343a, 0.9);
 scene.add(ambient);
-const moonLight = new THREE.DirectionalLight(0xc5e6ff, 3.1);
+const moonLight = new THREE.DirectionalLight(0xc5e6ff, 1.4);
 moonLight.position.set(-12, 24, 8);
 moonLight.castShadow = true;
 moonLight.shadow.mapSize.set(1024, 1024);
@@ -46,7 +49,7 @@ moonLight.shadow.camera.top = 24;
 moonLight.shadow.camera.bottom = -24;
 moonLight.shadow.bias = -0.0005;
 scene.add(moonLight);
-const fillLight = new THREE.PointLight(0xff9a5c, 28, 22);
+const fillLight = new THREE.PointLight(0xff9a5c, 12, 16);
 fillLight.position.set(0, 4, 0);
 scene.add(fillLight);
 
@@ -207,6 +210,9 @@ function applyZombieAsset(zombie) {
     part.receiveShadow = true;
     const cloneMaterial = (material) => {
       const instance = material.clone();
+      if (instance.color) instance.color.multiplyScalar(1.12);
+      if (instance.color && zombie.variant.tint !== 0xffffff) instance.color.multiply(new THREE.Color(zombie.variant.tint));
+      if (instance.emissive && instance.emissive.getHex() !== 0) instance.emissive.multiplyScalar(1.1);
       if (instance.emissive) instance.userData.baseEmissive = instance.emissive.clone();
       return instance;
     };
@@ -217,11 +223,12 @@ function applyZombieAsset(zombie) {
   const size = bounds.getSize(new THREE.Vector3());
   if (!Number.isFinite(size.y) || size.y < 0.1) return false;
   const center = bounds.getCenter(new THREE.Vector3());
-  const scale = 1.65 / size.y;
+  const scale = (1.65 * zombie.variant.modelScale) / size.y;
   replacement.scale.setScalar(scale);
   replacement.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
   const root = new THREE.Group();
   root.add(replacement);
+  addZombieHealthBar(zombie, root);
   if (zombie.model) {
     scene.remove(zombie.model);
     zombie.model.traverse((part) => { if (part.geometry) part.geometry.dispose(); });
@@ -260,25 +267,55 @@ function loadZombieAsset() {
   });
   return zombieAsset.ready;
 }
+function addZombieHealthBar(zombie, root) {
+  const background = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x171719, transparent: true, opacity: 0.94, depthTest: false, depthWrite: false }));
+  background.position.set(0, 2.03, 0);
+  background.scale.set(0.94, 0.12, 1);
+  background.renderOrder = 20;
+  const fill = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x6fd17a, transparent: true, depthTest: false, depthWrite: false }));
+  fill.position.set(0, 2.03, 0.01);
+  fill.scale.set(0.88, 0.065, 1);
+  fill.renderOrder = 21;
+  root.add(background, fill);
+  zombie.healthBar = { background, fill, width: 0.88 };
+  updateZombieHealthBar(zombie);
+}
+function updateZombieHealthBar(zombie) {
+  if (!zombie.healthBar) return;
+  const ratio = clamp(zombie.hp / zombie.maxHp, 0, 1);
+  const { fill, width } = zombie.healthBar;
+  fill.visible = ratio > 0;
+  fill.scale.x = width * ratio;
+  fill.position.x = -(width * (1 - ratio)) / 2;
+  fill.material.color.setHex(ratio > 0.55 ? 0x75d477 : ratio > 0.25 ? 0xe7bd4c : 0xe34e4e);
+}
+function damageZombie(zombie, damage) {
+  zombie.hp = Math.max(0, zombie.hp - Math.max(1, damage - zombie.armor));
+  updateZombieHealthBar(zombie);
+}
 function makeZombieModel(zombie) {
   const root = new THREE.Group();
+  const variant = zombie.variant;
   const shade = Math.random();
-  const skin = mat(shade > 0.5 ? 0x718c58 : 0x8e9b64);
-  const outfit = mat([0x4a3e48, 0x38494a, 0x55503e, 0x553941][Math.floor(Math.random() * 4)]);
-  const accent = mat([0x784353, 0x8b534a, 0x414f6b, 0x7d663d][Math.floor(Math.random() * 4)]);
+  const skin = mat(variant.skin[shade > 0.5 ? 0 : 1]);
+  const outfit = mat(variant.outfits[Math.floor(Math.random() * variant.outfits.length)]);
+  const accent = mat(variant.accent);
   const bootMat = mat(0x25292a);
-  // Ragged, fully clothed silhouette with deliberately exaggerated padded chest armor.
+  const bodyWidth = variant.id === 'brute' ? 1.32 : variant.id === 'runner' ? 0.82 : 1;
+  // Ragged, fully clothed silhouettes with distinctive infected silhouettes.
   const torso = mesh(new THREE.CapsuleGeometry(0.34, 0.42, 4, 8), outfit, root, 0, 0.79, 0);
-  torso.scale.set(1.05, 0.9, 0.77);
+  torso.scale.set(1.05 * bodyWidth, variant.id === 'brute' ? 1.02 : 0.9, 0.77);
   const coatTail = mesh(new THREE.BoxGeometry(0.58, 0.38, 0.28), outfit, root, 0, 0.48, -0.03);
   coatTail.rotation.x = -0.08;
   for (const side of [-1, 1]) {
-    const leg = mesh(new THREE.CapsuleGeometry(0.105, 0.34, 3, 6), skin, root, side * 0.17, 0.28, 0);
+    const leg = mesh(new THREE.CapsuleGeometry(0.105, 0.34, 3, 6), skin, root, side * 0.17 * bodyWidth, 0.28, 0);
+    leg.scale.set(variant.id === 'brute' ? 1.22 : 1, 1, 1);
     leg.rotation.z = side * -0.09;
-    mesh(new THREE.BoxGeometry(0.23, 0.13, 0.34), bootMat, root, side * 0.17, 0.09, 0.07);
-    const arm = mesh(new THREE.CapsuleGeometry(0.085, 0.43, 3, 6), skin, root, side * 0.43, 0.83, 0.01);
+    mesh(new THREE.BoxGeometry(0.23, 0.13, 0.34), bootMat, root, side * 0.17 * bodyWidth, 0.09, 0.07);
+    const arm = mesh(new THREE.CapsuleGeometry(0.085, 0.43, 3, 6), skin, root, side * 0.43 * bodyWidth, 0.83, 0.01);
+    arm.scale.set(variant.id === 'brute' ? 1.25 : 1, 1, 1);
     arm.rotation.z = side * -0.58;
-    const sleeve = mesh(new THREE.CapsuleGeometry(0.11, 0.2, 3, 6), outfit, root, side * 0.42, 1.00, 0.01);
+    const sleeve = mesh(new THREE.CapsuleGeometry(0.11, 0.2, 3, 6), outfit, root, side * 0.42 * bodyWidth, 1.00, 0.01);
     sleeve.rotation.z = side * -0.58;
     // Oversized, smooth fabric panels emphasize the chest while keeping the zombie fully clothed.
     const chest = mesh(new THREE.SphereGeometry(1, 20, 16), outfit, root, side * 0.2, 0.9, 0.29);
@@ -289,7 +326,20 @@ function makeZombieModel(zombie) {
   }
   const neck = mesh(new THREE.CylinderGeometry(0.10, 0.13, 0.18, 8), skin, root, 0, 1.21, 0);
   const head = mesh(new THREE.SphereGeometry(0.23, 12, 10), skin, root, 0, 1.42, 0.015);
-  head.scale.set(0.88, 1.04, 0.83);
+  head.scale.set(variant.id === 'brute' ? 1.1 : 0.88, variant.id === 'runner' ? 0.9 : 1.04, 0.83);
+  if (variant.id === 'brute') {
+    for (const side of [-1, 1]) {
+      const pauldron = mesh(new THREE.SphereGeometry(0.2, 8, 6), accent, root, side * 0.43, 1.08, 0.08);
+      pauldron.scale.set(1.2, 0.78, 0.82);
+    }
+  } else if (variant.id === 'guard') {
+    const helmet = mesh(new THREE.SphereGeometry(0.25, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat(0x42494a), root, 0, 1.53, 0.01);
+    helmet.scale.set(1.08, 0.72, 0.94);
+    mesh(new THREE.BoxGeometry(0.48, 0.055, 0.1), accent, root, 0, 1.48, 0.18);
+  } else if (variant.id === 'runner') {
+    const band = mesh(new THREE.BoxGeometry(0.68, 0.1, 0.1), accent, root, 0, 1.13, 0.24);
+    band.rotation.z = -0.16;
+  }
   for (const side of [-1, 1]) {
     mesh(new THREE.SphereGeometry(0.042, 8, 8), shared.eye, root, side * 0.09, 1.45, 0.205);
     mesh(new THREE.SphereGeometry(0.019, 6, 6), mat(0x301d19), root, side * 0.09, 1.45, 0.24);
@@ -300,6 +350,7 @@ function makeZombieModel(zombie) {
     torn.rotation.z = Math.PI;
   }
   root.traverse((part) => { if (part.isMesh) part.userData.baseMaterial = part.material; });
+  addZombieHealthBar(zombie, root);
   scene.add(root);
   zombie.model = root;
   zombie.limbs = root.children.filter((part) => part.geometry && part.geometry.type === 'CapsuleGeometry');
@@ -365,9 +416,22 @@ function togglePause() {
     releaseStick();
   }
 }
+const zombieVariants = [
+  { id: 'walker', chance: 0.57, hp: 1, speed: 1, damage: 1, radius: 18, armor: 0, modelScale: 1, tint: 0xffffff, skin: [0x718c58, 0x8e9b64], outfits: [0x4a3e48, 0x38494a, 0x55503e, 0x553941], accent: 0x784353 },
+  { id: 'runner', chance: 0.21, hp: 0.72, speed: 1.62, damage: 0.8, radius: 15, armor: 0, modelScale: 0.92, tint: 0xc3d2ad, skin: [0x8b9b66, 0xa2a66f], outfits: [0x503b38, 0x39464a, 0x5c4c3b], accent: 0xd8954c },
+  { id: 'brute', chance: 0.13, hp: 2.45, speed: 0.62, damage: 1.75, radius: 24, armor: 2, modelScale: 1.2, tint: 0xa6a090, skin: [0x596c4a, 0x73764e], outfits: [0x39383a, 0x463c36, 0x383e3a], accent: 0x78413e },
+  { id: 'guard', chance: 0.09, hp: 1.55, speed: 0.82, damage: 1.2, radius: 20, armor: 8, modelScale: 1.04, tint: 0x9ca9a5, skin: [0x64734e, 0x7d865a], outfits: [0x354447, 0x3c4748, 0x404039], accent: 0xa1743e },
+];
 function createZombie(x, y) {
   const levelBoost = 1 + (world.wave - 1) * 0.15;
-  const zombie = { x, y, radius: 18, speed: 36 + Math.random() * 20 * levelBoost, hp: 32 + world.wave * 4, maxHp: 32 + world.wave * 4, damage: 10 + world.wave * 1.2, hitFlash: 0, phase: Math.random() * 6.28, limbs: [] };
+  let roll = Math.random();
+  const variant = zombieVariants.find((entry) => (roll -= entry.chance) < 0) || zombieVariants[0];
+  const maxHp = Math.round((32 + world.wave * 4) * variant.hp);
+  const zombie = {
+    x, y, variant, radius: variant.radius, speed: (36 + Math.random() * 20) * levelBoost * variant.speed,
+    hp: maxHp, maxHp, damage: (10 + world.wave * 1.2) * variant.damage, armor: variant.armor,
+    hitFlash: 0, phase: Math.random() * 6.28, limbs: [],
+  };
   makeZombieModel(zombie);
   return zombie;
 }
@@ -490,7 +554,7 @@ function detonateBomb(bomb) {
     const zombie = world.zombies[i];
     const distance = dist(bomb.x, bomb.y, zombie.x, zombie.y);
     if (distance < radius) {
-      zombie.hp -= 72 * (1 - distance / (radius * 1.5));
+      damageZombie(zombie, 72 * (1 - distance / (radius * 1.5)));
       zombie.hitFlash = 0.12;
       if (zombie.hp <= 0) defeatZombie(zombie, i);
     }
@@ -560,7 +624,7 @@ function updateBullets(dt) {
     for (let j = world.zombies.length - 1; j >= 0; j -= 1) {
       const z = world.zombies[j];
       if (dist(b.x, b.y, z.x, z.y) < b.radius + z.radius) {
-        z.hp -= b.damage; z.hitFlash = 0.08;
+        damageZombie(z, b.damage); z.hitFlash = 0.08;
         scene.remove(b.model); world.bullets.splice(i, 1);
         if (z.hp <= 0) defeatZombie(z, j);
         break;
@@ -582,7 +646,7 @@ function updateCombat(dt, time) {
     const orbit = world.player.orbitModel;
     if (orbit) { orbit.visible = world.player.orbitLevel > 0; orbit.rotation.y += dt * (2.1 + world.player.orbitLevel * 0.35); }
     if (world.player.orbitLevel > 0 && world.player.orbitTimer <= 0 && dist(z.x, z.y, world.player.x, world.player.y) < 70 + world.player.orbitLevel * 15) {
-      z.hp -= 18 + world.player.orbitLevel * 13; z.hitFlash = 0.08; world.player.orbitTimer = 0.22;
+      damageZombie(z, 18 + world.player.orbitLevel * 13); z.hitFlash = 0.08; world.player.orbitTimer = 0.22;
       if (z.hp <= 0) {
         defeatZombie(z, i);
         continue;
@@ -803,7 +867,7 @@ function updateTouchStick(pointX, pointY) {
   stick.style.transform = `translate(${x}px, ${y}px)`;
   input.touchStick.x = x / maxRadius; input.touchStick.y = y / maxRadius; input.touchStick.active = true;
 }
-leftStick.addEventListener('pointerdown', (event) => { leftStick.setPointerCapture(event.pointerId); updateTouchStick(event.clientX, event.clientY); });
+leftStick.addEventListener('pointerdown', (event) => { if (event.pointerId >= 0 && leftStick.isConnected) { try { leftStick.setPointerCapture(event.pointerId); } catch {} } updateTouchStick(event.clientX, event.clientY); });
 leftStick.addEventListener('pointermove', (event) => { if (event.pressure > 0 || leftStick.hasPointerCapture(event.pointerId)) updateTouchStick(event.clientX, event.clientY); });
 function releaseStick() { input.touchStick.active = false; input.touchStick.x = 0; input.touchStick.y = 0; stick.style.transform = 'translate(0px, 0px)'; }
 leftStick.addEventListener('pointerup', releaseStick); leftStick.addEventListener('pointercancel', releaseStick);
