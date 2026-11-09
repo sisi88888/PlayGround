@@ -1,0 +1,29 @@
+{
+  "uid": "98415df5d3124381a46ccef5c2e02b71",
+  "name": ".fuse female zombie 1",
+  "author": "Leonardo Carvalho",
+  "authorUrl": "https://sketchfab.com/livrosparacriancas",
+  "license": "CC Attribution",
+  "licenseUrl": null,
+  "modelUrl": "https://sketchfab.com/3d-models/none-98415df5d3124381a46ccef5c2e02b71",
+  "thumbnailUrl": "https://media.sketchfab.com/models/98415df5d3124381a46ccef5c2e02b71/thumbnails/9330e0961ed54deb9510ff3f8ccdd1c0/36d9908425944381b9dc531e6e37644a.jpeg",
+  "glbBytes": 7659592,
+  "faceCount": 21519,
+  "vertexCount": 13396,
+  "textureCount": 12,
+  "textureMaxResolution": 1024,
+  "animationCount": 1,
+  "animations": [
+    {
+      "uid": "e323984babc84bf4a56402c500f85bdc",
+      "name": "mixamo.com",
+      "url": "https://media.sketchfab.com/models/98415df5d3124381a46ccef5c2e02b71/aa72f3ae00414692801c64a64085997d/animations/e323984babc84bf4a56402c500f85bdc.bin.gz",
+      "size": 163932,
+      "duration": 4.033,
+      "isLoop": false,
+      "isEnabled": true,
+      "createdAt": "2021-01-04T07:01:16.197158",
+      "updatedAt": "2021-01-04T07:01:16.197172"
+    }
+  ]
+}
