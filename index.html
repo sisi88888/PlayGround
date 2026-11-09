@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -13,37 +13,54 @@
 
       <div id="hud">
         <div class="panel top-left">
-          <div class="label">HEALTH</div>
-          <div class="bar"><span id="healthFill"></span></div>
+          <div class="label">ЗДОРОВЬЕ <span id="healthText">100 / 100</span></div>
+          <div class="bar health-bar"><span id="healthFill"></span></div>
+          <div class="label xp-label">УРОВЕНЬ <span id="levelValue">1</span></div>
+          <div class="bar xp-bar"><span id="xpFill"></span></div>
         </div>
 
         <div class="panel top-center">
-          <div id="title">ZOMBIE SIEGE</div>
-          <div id="status">Tap start to survive</div>
+          <div id="title">НОЧЬ НЕ КОНЧАЕТСЯ</div>
+          <div id="status">Готовься к орде</div>
         </div>
 
         <div class="panel top-right">
-          <div class="label">WAVE</div>
-          <div id="waveValue">1</div>
-          <div class="label">SCORE</div>
-          <div id="scoreValue">0</div>
-          <div class="label">WEAPON</div>
-          <div id="weaponValue">PISTOL</div>
+          <div class="stat-line"><span class="label">ВРЕМЯ</span><strong id="timeValue">00:00</strong></div>
+          <div class="stat-line"><span class="label">ВОЛНА</span><strong id="waveValue">1</strong></div>
+          <div class="stat-line"><span class="label">УБИЙСТВА</span><strong id="scoreValue">0</strong></div>
         </div>
       </div>
 
       <div id="overlay" class="visible">
-        <div class="card">
-          <h1>Zombie Siege</h1>
-          <p>Survive the night. Loot upgrades, switch weapons, and blast through the horde.</p>
-          <ul>
-            <li>Move: WASD / touch stick</li>
-            <li>Fire: Mouse / FIRE button</li>
-            <li>Switch: Q or 1 / 2</li>
-            <li>Throw bomb: select BOMB, then fire (or Space)</li>
-            <li>Music and zombie groans start with the game</li>
-          </ul>
-          <button id="startButton">Start Game</button>
+        <div class="card intro-card">
+          <div class="eyebrow">АРКАДНОЕ ВЫЖИВАНИЕ</div>
+          <h1>Ночь <em>живых</em></h1>
+          <p>Орда неумолима. Двигайся, собирай эссенцию и выбирай усиления — оружие атакует ближайших врагов само.</p>
+          <div class="how-to-play">
+            <span><b>WASD</b> / стрелки <small>движение</small></span>
+            <span><b>ПРОБЕЛ</b> / <b>E</b> <small>взрывной импульс</small></span>
+            <span><b>АВТОАТАКА</b> <small>цель выбирается сама</small></span>
+          </div>
+          <button id="startButton">Выйти в ночь <span>→</span></button>
+          <div class="footnote">Собирай зелёную эссенцию • Повышай уровень • Продержись как можно дольше</div>
+        </div>
+      </div>
+
+      <div id="upgradeOverlay" class="modal-overlay hidden" aria-modal="true" role="dialog">
+        <div class="card upgrade-card">
+          <div class="eyebrow">НОВЫЙ УРОВЕНЬ</div>
+          <h1>Выбери усиление</h1>
+          <p>Время остановилось. Выбери одно улучшение.</p>
+          <div id="upgradeChoices" class="upgrade-choices"></div>
+        </div>
+      </div>
+
+      <div id="pauseOverlay" class="modal-overlay hidden" aria-modal="true" role="dialog">
+        <div class="card pause-card">
+          <div class="eyebrow">ПЕРЕДЫШКА</div>
+          <h1>Пауза</h1>
+          <p>Ночь подождёт.</p>
+          <button id="resumeButton">Продолжить</button>
         </div>
       </div>
 
@@ -53,8 +70,8 @@
       </div>
 
       <div id="rightControls" class="touch-pad">
-        <button id="fireButton" class="action-button">FIRE</button>
-        <button id="switchButton" class="action-button bomb">PISTOL</button>
+        <button id="fireButton" class="action-button bomb">ИМПУЛЬС <small id="bombCooldown">ГОТОВ</small></button>
+        <div class="auto-badge">АВТО<br>АТАКА</div>
       </div>
     </div>
 

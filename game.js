@@ -1,11 +1,19 @@
 const canvas = document.getElementById('gameCanvas');
 const hud = {
   healthFill: document.getElementById('healthFill'),
+  healthText: document.getElementById('healthText'),
+  xpFill: document.getElementById('xpFill'),
+  levelValue: document.getElementById('levelValue'),
+  timeValue: document.getElementById('timeValue'),
   waveValue: document.getElementById('waveValue'),
   scoreValue: document.getElementById('scoreValue'),
   status: document.getElementById('status'),
   overlay: document.getElementById('overlay'),
+  upgradeOverlay: document.getElementById('upgradeOverlay'),
+  upgradeChoices: document.getElementById('upgradeChoices'),
+  pauseOverlay: document.getElementById('pauseOverlay'),
   startButton: document.getElementById('startButton'),
+  resumeButton: document.getElementById('resumeButton'),
 };
 
 const THREE = window.THREE;
@@ -43,8 +51,8 @@ fillLight.position.set(0, 4, 0);
 scene.add(fillLight);
 
 const world = {
-  width: 3200, height: 2000, running: false, gameOver: false, score: 0, wave: 1,
-  spawnTimer: 0, zombies: [], bullets: [], bombs: [], pickups: [], explosions: [], cars: [],
+  width: 3200, height: 2000, running: false, paused: false, gameOver: false, score: 0, kills: 0, wave: 1,
+  elapsed: 0, spawnTimer: 0, zombies: [], bullets: [], bombs: [], pickups: [], explosions: [], cars: [],
   player: null, factor: 50, groundScale: 0.819, lastTime: 0, carTimer: 0,
 };
 const zombieAsset = { root: null, clips: [], failed: false, ready: null };
@@ -308,6 +316,18 @@ function makePlayerModel(player) {
   mesh(new THREE.BoxGeometry(0.26, 0.12, 0.34), mat(0x3d4c42), root, -0.31, 0.82, 0);
   const gun = mesh(new THREE.BoxGeometry(0.14, 0.13, 0.68), mat(0x1b262a, 0.45, { metalness: 0.3 }), root, 0, 0.96, 0.45);
   gun.name = 'gun';
+  const orbit = new THREE.Group();
+  orbit.name = 'orbiting-blades';
+  orbit.visible = false;
+  const orbitRing = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.025, 6, 32), mat(0x64f0b2, 0.3, { emissive: 0x24b77c, emissiveIntensity: 1.1 }));
+  orbitRing.rotation.x = Math.PI / 2;
+  orbit.add(orbitRing);
+  for (let i = 0; i < 3; i += 1) {
+    const blade = mesh(new THREE.ConeGeometry(0.12, 0.42, 5), mat(0xc9ffe7, 0.25, { emissive: 0x49efa3, emissiveIntensity: 0.75 }), orbit, Math.cos(i * Math.PI * 2 / 3) * 0.72, 0.12, Math.sin(i * Math.PI * 2 / 3) * 0.72);
+    blade.rotation.x = Math.PI / 2;
+  }
+  root.add(orbit);
+  player.orbitModel = orbit;
   for (const side of [-1, 1]) {
     mesh(new THREE.CapsuleGeometry(0.08, 0.37, 3, 6), uniform, root, side * 0.37, 0.83, 0.10).rotation.x = -0.4;
     mesh(new THREE.CapsuleGeometry(0.11, 0.34, 3, 6), mat(0x202c2f), root, side * 0.15, 0.23, 0);
@@ -322,22 +342,28 @@ function syncEntity(entity) {
   entity.model.position.set(position.x, 0, position.z);
 }
 function createPlayer() {
-  const player = { x: world.width / 2, y: world.height / 2, radius: 18, speed: 220, hp: 100, maxHp: 100, fireCooldown: 0, angle: 0, weaponLevel: 1, weapon: 'pistol', gunFlash: 0, invuln: 0 };
+  const player = { x: world.width / 2, y: world.height / 2, radius: 18, speed: 220, hp: 100, maxHp: 100, fireCooldown: 0, angle: 0, weaponLevel: 1, damage: 24, fireRate: 0.48, projectileCount: 1, magnet: 300, armor: 0, regen: 0, orbitLevel: 0, orbitTimer: 0, bombCooldown: 0, xp: 0, level: 1, xpNext: 6, upgradeLevels: {}, gunFlash: 0, invuln: 0 };
   makePlayerModel(player);
   updateWeaponLabel(player);
   return player;
 }
-function updateWeaponLabel(player = world.player) {
-  const button = document.getElementById('switchButton');
-  if (button && player) button.textContent = player.weapon === 'pistol' ? 'PISTOL' : 'BOMB';
-  const status = document.getElementById('weaponValue');
-  if (status && player) status.textContent = player.weapon === 'pistol' ? 'PISTOL' : 'BOMB';
+function updateWeaponLabel() {
+  const cooldown = document.getElementById('bombCooldown');
+  if (cooldown && world.player) cooldown.textContent = world.player.bombCooldown <= 0 ? 'ГОТОВ' : `${world.player.bombCooldown.toFixed(1)}с`;
 }
-function toggleWeapon() {
-  if (!world.player) return;
-  world.player.weapon = world.player.weapon === 'pistol' ? 'bomb' : 'pistol';
-  updateWeaponLabel();
-  hud.status.textContent = world.player.weapon === 'pistol' ? 'Pistol selected' : 'Bombs selected — fire to throw';
+function triggerImpulse() {
+  if (!world.running || world.paused || world.gameOver) return;
+  input.bomb = true;
+}
+function togglePause() {
+  if (!world.running || world.gameOver || !world.player || !hud.upgradeOverlay.classList.contains('hidden')) return;
+  world.paused = !world.paused;
+  hud.pauseOverlay.classList.toggle('hidden', !world.paused);
+  hud.status.textContent = world.paused ? 'Игра на паузе' : 'Орда приближается';
+  if (world.paused) {
+    input.keys.clear();
+    releaseStick();
+  }
 }
 function createZombie(x, y) {
   const levelBoost = 1 + (world.wave - 1) * 0.15;
@@ -357,22 +383,31 @@ function spawnAroundPlayer(minScale = 0.82, maxScale = 1.08) {
   };
 }
 function spawnWave() {
-  const count = Math.min(5 + world.wave * 2, 24);
-  world.spawnTimer = 0;
-  for (let i = 0; i < count; i += 1) {
-    const point = spawnAroundPlayer(0.9, 1.18);
+  const count = Math.min(3 + Math.floor(world.wave * 0.8), 10);
+  const budget = Math.max(0, 58 - world.zombies.length);
+  for (let i = 0; i < Math.min(count, budget); i += 1) {
+    const point = spawnAroundPlayer(1.02, 1.32);
     world.zombies.push(createZombie(point.x, point.y));
   }
 }
-function addPickup(x, y, type = 'ammo') {
+function addPickup(x, y, type = 'xp', value = 1) {
   const group = new THREE.Group();
-  const color = type === 'ammo' ? 0xe9b544 : 0x40df91;
-  const crystal = mesh(new THREE.BoxGeometry(0.30, 0.30, 0.30), mat(color, 0.3, { emissive: color, emissiveIntensity: 0.25 }), group, 0, 0.42, 0);
+  const color = type === 'health' ? 0xff647c : 0x58f0ae;
+  const crystal = mesh(new THREE.OctahedronGeometry(0.22, 0), mat(color, 0.25, { emissive: color, emissiveIntensity: 0.65 }), group, 0, 0.42, 0);
   crystal.rotation.set(0.3, 0.45, 0.3);
   scene.add(group);
-  const item = { x, y, radius: 10, type, bob: Math.random() * Math.PI * 2, model: group };
+  const item = { x, y, radius: 11, type, value, bob: Math.random() * Math.PI * 2, model: group };
   syncEntity(item);
   world.pickups.push(item);
+}
+function defeatZombie(zombie, index) {
+  world.score += 1;
+  world.kills += 1;
+  scene.remove(zombie.model);
+  world.zombies.splice(index, 1);
+  createExplosion(zombie.x, zombie.y, 22, 0x9ae6b4);
+  if (Math.random() < 0.88) addPickup(zombie.x, zombie.y, 'xp', 1 + (world.wave > 4 && Math.random() < 0.2 ? 1 : 0));
+  if (Math.random() < 0.035) addPickup(zombie.x, zombie.y, 'health');
 }
 function createCar(x, y) {
   const root = new THREE.Group();
@@ -398,11 +433,12 @@ function clearEntities() {
 function resetGame() {
   clearEntities();
   if (world.player?.model) scene.remove(world.player.model);
-  world.running = true; world.gameOver = false; world.score = 0; world.wave = 1; world.spawnTimer = 0; world.carTimer = 0;
+  world.running = true; world.paused = false; world.gameOver = false; world.score = 0; world.kills = 0; world.wave = 1; world.elapsed = 0; world.spawnTimer = 1.5; world.carTimer = 9999;
   world.zombies = []; world.bullets = []; world.bombs = []; world.pickups = []; world.explosions = []; world.cars = [];
   world.player = createPlayer();
-  hud.status.textContent = 'Survive the night';
-  hud.waveValue.textContent = '1'; hud.scoreValue.textContent = '0';
+  hud.status.textContent = 'Орда приближается';
+  hud.waveValue.textContent = '1'; hud.scoreValue.textContent = '0'; hud.timeValue.textContent = '00:00';
+  hud.healthFill.style.width = '100%'; hud.xpFill.style.width = '0%'; hud.levelValue.textContent = '1'; hud.healthText.textContent = '100 / 100';
   spawnWave();
 }
 async function startGame() {
@@ -411,37 +447,41 @@ async function startGame() {
   const button = hud.overlay.querySelector('button');
   if (button) {
     button.disabled = true;
-    button.textContent = 'Loading…';
+    button.textContent = 'Загрузка…';
   }
   startAudio();
   if (zombieAsset.ready && !zombieAsset.root && !zombieAsset.failed) {
-    hud.status.textContent = 'Loading 3D zombies…';
+    hud.status.textContent = 'Загрузка зомби…';
     await zombieAsset.ready;
-  }
-  if (button?.isConnected) {
-    button.disabled = false;
-    button.textContent = button.id === 'restartButton' ? 'Play Again' : 'Start Game';
   }
   gameStartPending = false;
   resetGame();
   hud.overlay.classList.add('hidden');
+  hud.upgradeOverlay.classList.add('hidden');
+  hud.pauseOverlay.classList.add('hidden');
 }
 function fireBullet() {
-  const bullet = mesh(new THREE.SphereGeometry(0.075, 8, 6), mat(0xffd26c, 0.25, { emissive: 0xff8a30, emissiveIntensity: 1.3 }), scene, 0, 0.62, 0);
-  const angle = world.player.angle + (Math.random() - 0.5) * 0.08 * world.player.weaponLevel;
-  const p = toScene(world.player.x + Math.cos(angle) * 28, world.player.y + Math.sin(angle) * 28, 0.64);
-  bullet.position.copy(p);
-  world.bullets.push({ x: world.player.x + Math.cos(angle) * 28, y: world.player.y + Math.sin(angle) * 28, vx: Math.cos(angle) * 520, vy: Math.sin(angle) * 520, radius: 4, life: 1.1, damage: 20 + (world.player.weaponLevel - 1) * 8, model: bullet });
+  const player = world.player;
+  const count = player.projectileCount;
+  for (let i = 0; i < count; i += 1) {
+    const spread = (i - (count - 1) / 2) * 0.12;
+    const angle = player.angle + spread + (Math.random() - 0.5) * 0.035;
+    const bullet = mesh(new THREE.SphereGeometry(0.09, 8, 6), mat(0xffd26c, 0.25, { emissive: 0xff8a30, emissiveIntensity: 1.3 }), scene, 0, 0.62, 0);
+    const x = player.x + Math.cos(angle) * 28; const y = player.y + Math.sin(angle) * 28;
+    bullet.position.copy(toScene(x, y, 0.64));
+    world.bullets.push({ x, y, vx: Math.cos(angle) * 570, vy: Math.sin(angle) * 570, radius: 5, life: 1.1, damage: player.damage, model: bullet });
+  }
+  player.gunFlash = 0.08;
 }
 function throwBomb() {
   const player = world.player;
-  if (!player || player.fireCooldown > 0) return;
+  if (!player || player.bombCooldown > 0) return;
   const angle = player.angle;
   const model = mesh(new THREE.SphereGeometry(0.13, 10, 8), mat(0x282d31, 0.45, { emissive: 0x7f1d1d, emissiveIntensity: 0.35 }), scene, 0, 0, 0);
   const bomb = { x: player.x + Math.cos(angle) * 24, y: player.y + Math.sin(angle) * 24, vx: Math.cos(angle) * 260, vy: Math.sin(angle) * 260, age: 0, fuse: 0.72, model };
   bomb.model.position.copy(toScene(bomb.x, bomb.y, 0.7));
   world.bombs.push(bomb);
-  player.fireCooldown = 0.85;
+  player.bombCooldown = 9;
 }
 function detonateBomb(bomb) {
   scene.remove(bomb.model);
@@ -452,10 +492,7 @@ function detonateBomb(bomb) {
     if (distance < radius) {
       zombie.hp -= 72 * (1 - distance / (radius * 1.5));
       zombie.hitFlash = 0.12;
-      if (zombie.hp <= 0) {
-        world.score += 15; scene.remove(zombie.model); world.zombies.splice(i, 1);
-        if (Math.random() < 0.22) addPickup(zombie.x, zombie.y, 'ammo');
-      }
+      if (zombie.hp <= 0) defeatZombie(zombie, i);
     }
   }
   for (const car of world.cars) if (dist(bomb.x, bomb.y, car.x, car.y) < radius + 24) car.hp -= 90;
@@ -493,18 +530,25 @@ function updatePlayer(dt) {
   const length = Math.hypot(dx, dy) || 1;
   player.x = clamp(player.x + dx / length * player.speed * dt, 20, world.width - 20);
   player.y = clamp(player.y + dy / length * player.speed * dt, 20, world.height - 20);
-  const target = fromScene(input.pointer.x, input.pointer.y);
-  player.angle = Math.atan2(target.y - player.y, target.x - player.x);
+  if (player.regen > 0 && player.hp < player.maxHp) player.hp = Math.min(player.maxHp, player.hp + player.regen * dt);
+  player.orbitTimer = Math.max(0, player.orbitTimer - dt);
+  let target = null; let targetDistance = 650;
+  for (const zombie of world.zombies) {
+    const distance = dist(player.x, player.y, zombie.x, zombie.y);
+    if (distance < targetDistance) { target = zombie; targetDistance = distance; }
+  }
+  if (target) {
+    player.angle = Math.atan2(target.y - player.y, target.x - player.x);
+    player.fireCooldown -= dt;
+    if (player.fireCooldown <= 0) { fireBullet(); player.fireCooldown = player.fireRate; }
+  } else player.fireCooldown = Math.min(player.fireCooldown, 0);
   player.model.rotation.y = Math.PI / 2 - player.angle;
   syncEntity(player);
-  player.fireCooldown -= dt;
-  if ((input.fire || input.pointer.down) && player.fireCooldown <= 0) {
-    if (player.weapon === 'bomb') throwBomb();
-    else { fireBullet(); player.fireCooldown = 0.15; player.gunFlash = 0.08; }
-  }
+  player.bombCooldown = Math.max(0, player.bombCooldown - dt);
   if (input.bomb) { input.bomb = false; throwBomb(); }
   if (player.invuln > 0) player.invuln -= dt;
   if (player.gunFlash > 0) player.gunFlash -= dt;
+  updateWeaponLabel();
 }
 function updateBullets(dt) {
   for (let i = world.bullets.length - 1; i >= 0; i -= 1) {
@@ -518,11 +562,7 @@ function updateBullets(dt) {
       if (dist(b.x, b.y, z.x, z.y) < b.radius + z.radius) {
         z.hp -= b.damage; z.hitFlash = 0.08;
         scene.remove(b.model); world.bullets.splice(i, 1);
-        if (z.hp <= 0) {
-          world.score += 15; scene.remove(z.model); world.zombies.splice(j, 1);
-          createExplosion(z.x, z.y, 22, 0x9ae6b4);
-          if (Math.random() < 0.28) addPickup(z.x, z.y, 'ammo'); else if (Math.random() < 0.12) addPickup(z.x, z.y, 'health');
-        }
+        if (z.hp <= 0) defeatZombie(z, j);
         break;
       }
     }
@@ -539,6 +579,15 @@ function updateCombat(dt, time) {
     z.model.position.y = Math.abs(Math.sin(z.phase)) * 0.035;
     if (z.mixer) z.mixer.update(dt);
     else z.limbs.forEach((limb, index) => { limb.rotation.z += Math.sin(time * 0.008 + index) * 0.0015; });
+    const orbit = world.player.orbitModel;
+    if (orbit) { orbit.visible = world.player.orbitLevel > 0; orbit.rotation.y += dt * (2.1 + world.player.orbitLevel * 0.35); }
+    if (world.player.orbitLevel > 0 && world.player.orbitTimer <= 0 && dist(z.x, z.y, world.player.x, world.player.y) < 70 + world.player.orbitLevel * 15) {
+      z.hp -= 18 + world.player.orbitLevel * 13; z.hitFlash = 0.08; world.player.orbitTimer = 0.22;
+      if (z.hp <= 0) {
+        defeatZombie(z, i);
+        continue;
+      }
+    }
     if (z.hitFlash > 0) {
       z.hitFlash -= dt;
       z.model.traverse((part) => {
@@ -552,22 +601,88 @@ function updateCombat(dt, time) {
       materials.forEach((material) => material.emissive?.copy(material.userData.baseEmissive || new THREE.Color(0x000000)));
     });
     if (dist(z.x, z.y, world.player.x, world.player.y) < z.radius + world.player.radius && world.player.invuln <= 0) {
-      world.player.hp -= z.damage;
-      world.player.invuln = 0.55;
+      world.player.hp = Math.max(0, world.player.hp - Math.max(1, z.damage - world.player.armor));
+      world.player.invuln = 0.65;
       if (world.player.hp <= 0) finishGame();
     }
-    if (z.hp <= 0) { scene.remove(z.model); world.zombies.splice(i, 1); }
   }
 }
+const upgrades = [
+  { id: 'damage', name: 'Тяжёлые пули', desc: '+30% урона автоатаке', max: 5, apply: (p) => { p.damage *= 1.3; } },
+  { id: 'rate', name: 'Быстрый спуск', desc: 'Атака на 18% быстрее', max: 5, apply: (p) => { p.fireRate *= 0.82; } },
+  { id: 'speed', name: 'Лёгкие ноги', desc: '+12% скорости передвижения', max: 5, apply: (p) => { p.speed *= 1.12; } },
+  { id: 'vitality', name: 'Запас сил', desc: '+25 к максимуму здоровья и лечение', max: 5, apply: (p) => { p.maxHp += 25; p.hp = Math.min(p.maxHp, p.hp + 25); } },
+  { id: 'armor', name: 'Бронежилет', desc: 'Получаемый урон меньше на 2', max: 5, apply: (p) => { p.armor += 2; } },
+  { id: 'magnet', name: 'Магнит эссенции', desc: 'Подбор эссенции с большего расстояния', max: 5, apply: (p) => { p.magnet += 65; } },
+  { id: 'orbit', name: 'Орбитальные клинки', desc: 'Клинки вращаются вокруг героя и ранят врагов', max: 4, apply: (p) => { p.orbitLevel += 1; } },
+  { id: 'multishot', name: 'Двойной выстрел', desc: '+1 снаряд за атаку', max: 4, apply: (p) => { p.projectileCount += 1; } },
+  { id: 'regen', name: 'Регенерация', desc: 'Восстановление 1.2 здоровья в секунду', max: 4, apply: (p) => { p.regen += 1.2; } },
+];
+function refreshProgressHud() {
+  const player = world.player;
+  if (!player) return;
+  hud.xpFill.style.width = `${clamp(player.xp / player.xpNext * 100, 0, 100)}%`;
+  hud.levelValue.textContent = String(player.level);
+}
+function awardXP(amount) {
+  const player = world.player;
+  player.xp += amount;
+  if (player.xp >= player.xpNext && !world.paused) {
+    player.xp -= player.xpNext;
+    player.level += 1;
+    player.xpNext = Math.ceil(player.xpNext * 1.32 + 2);
+    showUpgradeChoices();
+  }
+  refreshProgressHud();
+}
+function showUpgradeChoices() {
+  world.paused = true;
+  hud.status.textContent = 'Выбери усиление';
+  const available = upgrades.filter((upgrade) => (world.player.upgradeLevels[upgrade.id] || 0) < upgrade.max);
+  const choices = available.sort(() => Math.random() - 0.5).slice(0, Math.min(3, available.length));
+  hud.upgradeChoices.innerHTML = '';
+  choices.forEach((upgrade, index) => {
+    const level = world.player.upgradeLevels[upgrade.id] || 0;
+    const button = document.createElement('button');
+    button.className = 'upgrade-option';
+    button.innerHTML = `<span class="upgrade-number">0${index + 1}</span><strong>${upgrade.name}</strong><span>${upgrade.desc}</span><small>УРОВЕНЬ ${level + 1} / ${upgrade.max}</small>`;
+    button.addEventListener('click', () => {
+      upgrade.apply(world.player);
+      world.player.upgradeLevels[upgrade.id] = level + 1;
+      hud.upgradeOverlay.classList.add('hidden');
+      world.paused = false;
+      hud.status.textContent = 'Орда приближается';
+      if (world.player.xp >= world.player.xpNext) {
+        world.player.xp -= world.player.xpNext;
+        world.player.level += 1;
+        world.player.xpNext = Math.ceil(world.player.xpNext * 1.32 + 2);
+        showUpgradeChoices();
+      }
+      refreshProgressHud();
+      updatePlayer(0);
+      updateHud();
+    });
+    hud.upgradeChoices.appendChild(button);
+  });
+  hud.upgradeOverlay.classList.remove('hidden');
+}
 function updatePickups(dt) {
+  const player = world.player;
   for (let i = world.pickups.length - 1; i >= 0; i -= 1) {
     const item = world.pickups[i]; item.bob += dt * 4;
+    const distance = dist(item.x, item.y, player.x, player.y);
+    if (item.type === 'xp' && distance < player.magnet && distance > 0) {
+      const pull = Math.min(360, 110 + Math.max(0, player.magnet - distance) * 1.2);
+      item.x += (player.x - item.x) / distance * pull * dt;
+      item.y += (player.y - item.y) / distance * pull * dt;
+    }
     item.model.position.copy(toScene(item.x, item.y, 0.42 + Math.sin(item.bob) * 0.07));
     item.model.rotation.y += dt * 1.3;
-    if (dist(item.x, item.y, world.player.x, world.player.y) < item.radius + world.player.radius + 6) {
-      if (item.type === 'ammo') { world.player.weaponLevel = Math.min(5, world.player.weaponLevel + 1); hud.status.textContent = 'Weapon upgraded'; }
-      else { world.player.hp = Math.min(world.player.maxHp, world.player.hp + 25); hud.status.textContent = 'Health refill'; }
+    if (dist(item.x, item.y, player.x, player.y) < item.radius + player.radius + 6) {
+      if (item.type === 'xp') { awardXP(item.value); if (!world.paused) hud.status.textContent = 'Эссенция собрана'; }
+      else { player.hp = Math.min(player.maxHp, player.hp + 25); hud.status.textContent = 'Здоровье восстановлено'; }
       scene.remove(item.model); world.pickups.splice(i, 1);
+      if (world.paused) break;
     }
   }
 }
@@ -601,31 +716,56 @@ function updateExplosions(dt) {
   }
 }
 function updateWave(dt) {
-  world.spawnTimer -= dt;
-  if (world.zombies.length === 0 && world.spawnTimer <= 0) {
-    world.wave += 1; hud.waveValue.textContent = String(world.wave); hud.status.textContent = `Wave ${world.wave}`;
-    world.spawnTimer = 1.25; setTimeout(() => { if (world.running && !world.gameOver) spawnWave(); }, 120);
+  world.elapsed += dt;
+  const nextWave = 1 + Math.floor(world.elapsed / 30);
+  if (nextWave !== world.wave) {
+    world.wave = nextWave;
+    hud.waveValue.textContent = String(world.wave);
+    hud.status.textContent = `ВОЛНА ${world.wave} — ОРДА УСИЛИВАЕТСЯ`;
   }
-  if (world.zombies.length > 0 && world.spawnTimer <= -0.5) world.spawnTimer = 0;
+  world.spawnTimer -= dt;
+  if (world.spawnTimer <= 0) {
+    const count = Math.min(1 + Math.floor(world.wave * 0.6), 7);
+    const budget = Math.max(0, 48 - world.zombies.length);
+    for (let i = 0; i < Math.min(count, budget); i += 1) {
+      const point = spawnAroundPlayer(1.05, 1.4);
+      world.zombies.push(createZombie(point.x, point.y));
+    }
+    world.spawnTimer = Math.max(0.65, 2.8 - world.wave * 0.12);
+  }
+}
+function updateHud() {
+  if (!world.player) return;
+  const player = world.player;
+  hud.healthFill.style.width = `${clamp(player.hp / player.maxHp * 100, 0, 100)}%`;
+  hud.healthText.textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
+  hud.scoreValue.textContent = String(world.kills);
+  hud.timeValue.textContent = `${String(Math.floor(world.elapsed / 60)).padStart(2, '0')}:${String(Math.floor(world.elapsed % 60)).padStart(2, '0')}`;
+  refreshProgressHud();
 }
 function finishGame() {
   if (world.gameOver) return;
-  world.player.hp = 0; world.running = false; world.gameOver = true;
-  hud.status.textContent = 'You were overwhelmed';
+  world.player.hp = 0; world.running = false; world.paused = false; world.gameOver = true;
+  hud.status.textContent = 'Тебя окружили';
+  hud.pauseOverlay.classList.add('hidden');
+  hud.upgradeOverlay.classList.add('hidden');
   const card = hud.overlay.querySelector('.card');
-  card.innerHTML = `<h1>Game Over</h1><p>Wave reached: ${world.wave}</p><p>Score: ${world.score}</p><button id="restartButton">Play Again</button>`;
+  card.innerHTML = `<div class="eyebrow">КОНЕЦ НОЧИ</div><h1>Ты выстоял</h1><p>Время: ${hud.timeValue.textContent}</p><p>Достигнута волна ${world.wave} • Убийств: ${world.kills}</p><button id="restartButton">Ещё одна ночь <span>→</span></button>`;
   document.getElementById('restartButton').addEventListener('click', startGame);
   hud.overlay.classList.remove('hidden');
 }
 function updateGame(dt, time) {
-  if (!world.running || world.gameOver) return;
-  updatePlayer(dt); updateBullets(dt); updateBombs(dt); updateCars(dt); updatePickups(dt); updateCombat(dt, time); updateExplosions(dt); updateWave(dt);
+  if (!world.running || world.gameOver || world.paused) return;
+  updatePlayer(dt); updateBullets(dt); updateBombs(dt); updatePickups(dt);
+  if (world.paused || world.gameOver) return;
+  updateCombat(dt, time);
+  if (world.gameOver) return;
+  updateExplosions(dt); updateWave(dt);
   updateCamera(dt);
   if (world.zombies.length && time > audio.nextMoan) {
     playZombieMoan(); audio.nextMoan = time + 3800 + Math.random() * 3600;
   }
-  hud.healthFill.style.width = `${(world.player.hp / world.player.maxHp) * 100}%`;
-  hud.scoreValue.textContent = String(world.score);
+  updateHud();
 }
 function tick(timestamp) {
   const dt = Math.min((timestamp - world.lastTime) / 1000 || 0.016, 0.035);
@@ -640,14 +780,15 @@ function setPointerPosition(clientX, clientY) {
 }
 window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
-  if (['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright'].includes(key)) event.preventDefault();
+  if (['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright', ' '].includes(key)) event.preventDefault();
+  if (key === 'escape' || key === 'p') {
+    if (!event.repeat) togglePause();
+    return;
+  }
   input.keys.add(key);
-  if (!event.repeat && key === 'q') toggleWeapon();
-  if (!event.repeat && key === '1' && world.player) { world.player.weapon = 'pistol'; updateWeaponLabel(); }
-  if (!event.repeat && key === '2' && world.player) { world.player.weapon = 'bomb'; updateWeaponLabel(); }
-  if (key === ' ') { input.bomb = true; event.preventDefault(); }
+  if (!event.repeat && (key === 'e' || key === ' ')) triggerImpulse();
 });
-window.addEventListener('keyup', (event) => { input.keys.delete(event.key.toLowerCase()); if (event.key === ' ') input.bomb = false; });
+window.addEventListener('keyup', (event) => { input.keys.delete(event.key.toLowerCase()); });
 canvas.addEventListener('pointerdown', (event) => { setPointerPosition(event.clientX, event.clientY); input.pointer.down = true; });
 canvas.addEventListener('pointermove', (event) => setPointerPosition(event.clientX, event.clientY));
 canvas.addEventListener('pointerup', () => { input.pointer.down = false; });
@@ -666,12 +807,13 @@ leftStick.addEventListener('pointerdown', (event) => { leftStick.setPointerCaptu
 leftStick.addEventListener('pointermove', (event) => { if (event.pressure > 0 || leftStick.hasPointerCapture(event.pointerId)) updateTouchStick(event.clientX, event.clientY); });
 function releaseStick() { input.touchStick.active = false; input.touchStick.x = 0; input.touchStick.y = 0; stick.style.transform = 'translate(0px, 0px)'; }
 leftStick.addEventListener('pointerup', releaseStick); leftStick.addEventListener('pointercancel', releaseStick);
-const fireButton = document.getElementById('fireButton'); const switchButton = document.getElementById('switchButton');
-fireButton.addEventListener('pointerdown', (event) => { event.preventDefault(); input.fire = true; });
-fireButton.addEventListener('pointerup', () => { input.fire = false; }); fireButton.addEventListener('pointerleave', () => { input.fire = false; });
-fireButton.addEventListener('pointercancel', () => { input.fire = false; });
-switchButton.addEventListener('pointerdown', (event) => { event.preventDefault(); toggleWeapon(); });
+const fireButton = document.getElementById('fireButton');
+fireButton.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  triggerImpulse();
+});
 hud.startButton.addEventListener('click', startGame);
+hud.resumeButton.addEventListener('click', togglePause);
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 world.player = createPlayer();
