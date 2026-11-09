@@ -272,11 +272,11 @@ function makeZombieModel(zombie) {
     arm.rotation.z = side * -0.58;
     const sleeve = mesh(new THREE.CapsuleGeometry(0.11, 0.2, 3, 6), outfit, root, side * 0.42, 1.00, 0.01);
     sleeve.rotation.z = side * -0.58;
-    // Broad fabric panels keep the exaggerated silhouette clearly clothed and smooth.
-    const chest = mesh(new THREE.SphereGeometry(1, 16, 12), outfit, root, side * 0.19, 0.9, 0.29);
-    chest.scale.set(0.195, 0.17, 0.12);
-    const seam = mesh(new THREE.BoxGeometry(0.018, 0.29, 0.018), accent, root, side * 0.19, 0.9, 0.397);
-    const strap = mesh(new THREE.BoxGeometry(0.045, 0.37, 0.035), mat(0x292d2c), root, side * 0.2, 0.88, 0.416);
+    // Oversized, smooth fabric panels emphasize the chest while keeping the zombie fully clothed.
+    const chest = mesh(new THREE.SphereGeometry(1, 20, 16), outfit, root, side * 0.2, 0.9, 0.29);
+    chest.scale.set(0.25, 0.215, 0.15);
+    const seam = mesh(new THREE.BoxGeometry(0.018, 0.36, 0.018), accent, root, side * 0.2, 0.9, 0.425);
+    const strap = mesh(new THREE.BoxGeometry(0.045, 0.42, 0.035), mat(0x292d2c), root, side * 0.21, 0.88, 0.445);
     strap.rotation.z = side * 0.12;
   }
   const neck = mesh(new THREE.CylinderGeometry(0.10, 0.13, 0.18, 8), skin, root, 0, 1.21, 0);
