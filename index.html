@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Zombie Siege</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="game-shell">
+      <canvas id="gameCanvas"></canvas>
+
+      <div id="hud">
+        <div class="panel top-left">
+          <div class="label">HEALTH</div>
+          <div class="bar"><span id="healthFill"></span></div>
+        </div>
+
+        <div class="panel top-center">
+          <div id="title">ZOMBIE SIEGE</div>
+          <div id="status">Tap start to survive</div>
+        </div>
+
+        <div class="panel top-right">
+          <div class="label">WAVE</div>
+          <div id="waveValue">1</div>
+          <div class="label">SCORE</div>
+          <div id="scoreValue">0</div>
+        </div>
+      </div>
+
+      <div id="overlay" class="visible">
+        <div class="card">
+          <h1>Zombie Siege</h1>
+          <p>Survive the night. Loot better guns. Blow up cars to clear large groups.</p>
+          <ul>
+            <li>Move: WASD / touch stick</li>
+            <li>Shoot: Mouse / tap fire</li>
+            <li>Bomb: Space / car bomb button</li>
+          </ul>
+          <button id="startButton">Start Game</button>
+        </div>
+      </div>
+
+      <div id="leftStick" class="touch-pad" aria-label="Move stick">
+        <div class="pad-base"></div>
+        <div id="stickKnob" class="pad-knob"></div>
+      </div>
+
+      <div id="rightControls" class="touch-pad">
+        <button id="fireButton" class="action-button">FIRE</button>
+        <button id="bombButton" class="action-button bomb">BOMB</button>
+      </div>
+    </div>
+
+    <script src="game.js"></script>
+  </body>
+</html>
