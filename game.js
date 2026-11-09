@@ -42,13 +42,14 @@ scene.add(fillLight);
 
 const world = {
   width: 1200, height: 720, running: false, gameOver: false, score: 0, wave: 1,
-  spawnTimer: 0, zombies: [], bullets: [], pickups: [], explosions: [], cars: [],
+  spawnTimer: 0, zombies: [], bullets: [], bombs: [], pickups: [], explosions: [], cars: [],
   player: null, factor: 50, groundScale: 0.819, lastTime: 0, carTimer: 0,
 };
 const input = {
   keys: new Set(), pointer: { x: 0, y: 0, down: false }, move: { x: 0, y: 0 },
   fire: false, bomb: false, touchStick: { active: false, x: 0, y: 0 },
 };
+const audio = { context: null, master: null, drive: null, musicTimer: null, musicStep: 0, nextMoan: 0 };
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
 const mat = (color, roughness = 0.82, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, ...extra });
@@ -56,6 +57,68 @@ const shared = {
   green: mat(0x668d50), darkGreen: mat(0x304737), pale: mat(0x9ca66a), eye: mat(0xf5ebca, 0.35),
   red: mat(0x613d49), black: mat(0x111b20), cloth: mat(0x753e4d), steel: mat(0x69757a, 0.45),
 };
+
+function startAudio() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+  if (!audio.context) {
+    audio.context = new AudioContext();
+    audio.master = audio.context.createGain();
+    audio.master.gain.value = 0.13;
+    audio.master.connect(audio.context.destination);
+    audio.drive = audio.context.createWaveShaper();
+    const curve = new Float32Array(4096);
+    for (let i = 0; i < curve.length; i += 1) {
+      const x = (i * 2) / curve.length - 1;
+      curve[i] = Math.tanh(x * 5);
+    }
+    audio.drive.curve = curve; audio.drive.oversample = '4x'; audio.drive.connect(audio.master);
+  }
+  audio.context.resume();
+  if (audio.musicTimer) return;
+  const riff = [41.2, 41.2, 49, 41.2, 55, 49, 41.2, 61.7, 41.2, 41.2, 49, 55, 41.2, 49, 36.7, 41.2];
+  audio.musicTimer = window.setInterval(() => {
+    if (!world.running || !audio.context) return;
+    const ctx = audio.context;
+    const now = ctx.currentTime;
+    const step = audio.musicStep++ % riff.length;
+    if ([0, 4, 8, 12].includes(step)) {
+      const kick = ctx.createOscillator(); const volume = ctx.createGain();
+      kick.type = 'sine'; kick.frequency.setValueAtTime(115, now); kick.frequency.exponentialRampToValueAtTime(38, now + 0.12);
+      volume.gain.setValueAtTime(0.28, now); volume.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      kick.connect(volume); volume.connect(audio.master); kick.start(now); kick.stop(now + 0.15);
+    } else if ([2, 6, 10, 14].includes(step)) {
+      const snare = ctx.createOscillator(); const volume = ctx.createGain();
+      snare.type = 'triangle'; snare.frequency.value = 175;
+      volume.gain.setValueAtTime(0.12, now); volume.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      snare.connect(volume); volume.connect(audio.master); snare.start(now); snare.stop(now + 0.09);
+    }
+    if (step % 2 === 0) {
+      const root = riff[step];
+      [root, root * 1.5].forEach((frequency) => {
+        const osc = ctx.createOscillator(); const gain = ctx.createGain(); const filter = ctx.createBiquadFilter();
+        osc.type = 'sawtooth'; osc.frequency.value = frequency;
+        filter.type = 'lowpass'; filter.frequency.value = 420;
+        gain.gain.setValueAtTime(0.095, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+        osc.connect(filter); filter.connect(gain); gain.connect(audio.drive); osc.start(now); osc.stop(now + 0.21);
+      });
+    }
+  }, 220);
+}
+function playZombieMoan() {
+  if (!audio.context || audio.context.state !== 'running') return;
+  const ctx = audio.context; const now = ctx.currentTime;
+  const osc = ctx.createOscillator(); const wobble = ctx.createOscillator();
+  const wobbleGain = ctx.createGain(); const filter = ctx.createBiquadFilter(); const volume = ctx.createGain();
+  osc.type = 'sawtooth'; osc.frequency.setValueAtTime(72 + Math.random() * 28, now);
+  osc.frequency.exponentialRampToValueAtTime(42 + Math.random() * 16, now + 0.8);
+  wobble.frequency.value = 5; wobbleGain.gain.value = 7; wobble.connect(wobbleGain); wobbleGain.connect(osc.frequency);
+  filter.type = 'lowpass'; filter.frequency.value = 360;
+  volume.gain.setValueAtTime(0.0001, now); volume.gain.linearRampToValueAtTime(0.035, now + 0.12);
+  volume.gain.exponentialRampToValueAtTime(0.0001, now + 0.95);
+  osc.connect(filter); filter.connect(volume); volume.connect(audio.master);
+  wobble.start(now); osc.start(now); wobble.stop(now + 1); osc.stop(now + 1);
+}
 
 function resizeCanvas() {
   const rect = document.getElementById('game-shell').getBoundingClientRect();
@@ -137,9 +200,10 @@ function makeZombieModel(zombie) {
     arm.rotation.z = side * -0.58;
     const sleeve = mesh(new THREE.CapsuleGeometry(0.11, 0.2, 3, 6), outfit, root, side * 0.42, 1.00, 0.01);
     sleeve.rotation.z = side * -0.58;
-    // These clothed, padded forms give the requested oversized size-five chest silhouette.
-    const chest = mesh(new THREE.SphereGeometry(1, 14, 10), outfit, root, side * 0.19, 0.89, 0.30);
-    chest.scale.set(0.155, 0.145, 0.115);
+    // Broad fabric panels keep the exaggerated silhouette clearly clothed and smooth.
+    const chest = mesh(new THREE.SphereGeometry(1, 14, 10), outfit, root, side * 0.19, 0.89, 0.29);
+    chest.scale.set(0.17, 0.15, 0.105);
+    const seam = mesh(new THREE.BoxGeometry(0.018, 0.27, 0.018), accent, root, side * 0.19, 0.89, 0.388);
     const strap = mesh(new THREE.BoxGeometry(0.045, 0.35, 0.035), mat(0x292d2c), root, side * 0.2, 0.88, 0.405);
     strap.rotation.z = side * 0.12;
   }
@@ -185,9 +249,22 @@ function syncEntity(entity) {
   entity.model.position.set(position.x, 0, position.z);
 }
 function createPlayer() {
-  const player = { x: world.width / 2, y: world.height / 2, radius: 18, speed: 220, hp: 100, maxHp: 100, fireCooldown: 0, angle: 0, weaponLevel: 1, gunFlash: 0, invuln: 0 };
+  const player = { x: world.width / 2, y: world.height / 2, radius: 18, speed: 220, hp: 100, maxHp: 100, fireCooldown: 0, angle: 0, weaponLevel: 1, weapon: 'pistol', gunFlash: 0, invuln: 0 };
   makePlayerModel(player);
+  updateWeaponLabel(player);
   return player;
+}
+function updateWeaponLabel(player = world.player) {
+  const button = document.getElementById('switchButton');
+  if (button && player) button.textContent = player.weapon === 'pistol' ? 'PISTOL' : 'BOMB';
+  const status = document.getElementById('weaponValue');
+  if (status && player) status.textContent = player.weapon === 'pistol' ? 'PISTOL' : 'BOMB';
+}
+function toggleWeapon() {
+  if (!world.player) return;
+  world.player.weapon = world.player.weapon === 'pistol' ? 'bomb' : 'pistol';
+  updateWeaponLabel();
+  hud.status.textContent = world.player.weapon === 'pistol' ? 'Pistol selected' : 'Bombs selected — fire to throw';
 }
 function createZombie(x, y) {
   const levelBoost = 1 + (world.wave - 1) * 0.15;
@@ -236,7 +313,7 @@ function createCar(x, y) {
   world.cars.push(car);
 }
 function clearEntities() {
-  for (const list of [world.zombies, world.bullets, world.pickups, world.explosions, world.cars]) {
+  for (const list of [world.zombies, world.bullets, world.bombs, world.pickups, world.explosions, world.cars]) {
     for (const entity of list) if (entity.model) scene.remove(entity.model);
   }
 }
@@ -244,7 +321,7 @@ function resetGame() {
   clearEntities();
   if (world.player?.model) scene.remove(world.player.model);
   world.running = true; world.gameOver = false; world.score = 0; world.wave = 1; world.spawnTimer = 0; world.carTimer = 0;
-  world.zombies = []; world.bullets = []; world.pickups = []; world.explosions = []; world.cars = [];
+  world.zombies = []; world.bullets = []; world.bombs = []; world.pickups = []; world.explosions = []; world.cars = [];
   world.player = createPlayer();
   hud.status.textContent = 'Survive the night';
   hud.waveValue.textContent = '1'; hud.scoreValue.textContent = '0';
@@ -252,6 +329,7 @@ function resetGame() {
 }
 function startGame() {
   resetGame();
+  startAudio();
   hud.overlay.classList.add('hidden');
 }
 function fireBullet() {
@@ -260,6 +338,47 @@ function fireBullet() {
   const p = toScene(world.player.x + Math.cos(angle) * 28, world.player.y + Math.sin(angle) * 28, 0.64);
   bullet.position.copy(p);
   world.bullets.push({ x: world.player.x + Math.cos(angle) * 28, y: world.player.y + Math.sin(angle) * 28, vx: Math.cos(angle) * 520, vy: Math.sin(angle) * 520, radius: 4, life: 1.1, damage: 20 + (world.player.weaponLevel - 1) * 8, model: bullet });
+}
+function throwBomb() {
+  const player = world.player;
+  if (!player || player.fireCooldown > 0) return;
+  const angle = player.angle;
+  const model = mesh(new THREE.SphereGeometry(0.13, 10, 8), mat(0x282d31, 0.45, { emissive: 0x7f1d1d, emissiveIntensity: 0.35 }), scene, 0, 0, 0);
+  const bomb = { x: player.x + Math.cos(angle) * 24, y: player.y + Math.sin(angle) * 24, vx: Math.cos(angle) * 260, vy: Math.sin(angle) * 260, age: 0, fuse: 0.72, model };
+  bomb.model.position.copy(toScene(bomb.x, bomb.y, 0.7));
+  world.bombs.push(bomb);
+  player.fireCooldown = 0.85;
+}
+function detonateBomb(bomb) {
+  scene.remove(bomb.model);
+  const radius = 105;
+  for (let i = world.zombies.length - 1; i >= 0; i -= 1) {
+    const zombie = world.zombies[i];
+    const distance = dist(bomb.x, bomb.y, zombie.x, zombie.y);
+    if (distance < radius) {
+      zombie.hp -= 72 * (1 - distance / (radius * 1.5));
+      zombie.hitFlash = 0.12;
+      if (zombie.hp <= 0) {
+        world.score += 15; scene.remove(zombie.model); world.zombies.splice(i, 1);
+        if (Math.random() < 0.22) addPickup(zombie.x, zombie.y, 'ammo');
+      }
+    }
+  }
+  for (const car of world.cars) if (dist(bomb.x, bomb.y, car.x, car.y) < radius + 24) car.hp -= 90;
+  createExplosion(bomb.x, bomb.y, radius, 0xff5d73);
+  hud.status.textContent = 'Bomb detonated!';
+}
+function updateBombs(dt) {
+  for (let i = world.bombs.length - 1; i >= 0; i -= 1) {
+    const bomb = world.bombs[i];
+    bomb.age += dt; bomb.x += bomb.vx * dt; bomb.y += bomb.vy * dt;
+    const arc = Math.sin(Math.min(1, bomb.age / bomb.fuse) * Math.PI) * 1.25;
+    bomb.model.position.copy(toScene(bomb.x, bomb.y, 0.25 + arc));
+    bomb.model.rotation.x += dt * 8; bomb.model.rotation.z += dt * 6;
+    if (bomb.age >= bomb.fuse) {
+      detonateBomb(bomb); world.bombs.splice(i, 1);
+    }
+  }
 }
 function createExplosion(x, y, radius, color = 0xffbb33) {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.045, 6, 24), mat(color, 0.35, { emissive: color, emissiveIntensity: 1.2 }));
@@ -286,15 +405,10 @@ function updatePlayer(dt) {
   syncEntity(player);
   player.fireCooldown -= dt;
   if ((input.fire || input.pointer.down) && player.fireCooldown <= 0) {
-    fireBullet(); player.fireCooldown = 0.15; player.gunFlash = 0.08;
+    if (player.weapon === 'bomb') throwBomb();
+    else { fireBullet(); player.fireCooldown = 0.15; player.gunFlash = 0.08; }
   }
-  if (input.bomb && player.weaponLevel >= 2) {
-    input.bomb = false;
-    for (const zombie of world.zombies) if (dist(player.x, player.y, zombie.x, zombie.y) < 138) zombie.hp -= 40;
-    for (const car of world.cars) if (dist(player.x, player.y, car.x, car.y) < 120) car.hp -= 70;
-    createExplosion(player.x, player.y, 120, 0xff5d73);
-    hud.status.textContent = 'Bomb burst!';
-  }
+  if (input.bomb) { input.bomb = false; throwBomb(); }
   if (player.invuln > 0) player.invuln -= dt;
   if (player.gunFlash > 0) player.gunFlash -= dt;
 }
@@ -366,7 +480,7 @@ function updateCars(dt) {
     const car = world.cars[i]; car.charge += dt * 0.2;
     const dx = world.player.x - car.x; const dy = world.player.y - car.y; const len = Math.hypot(dx, dy) || 1;
     car.x += dx / len * 18 * dt; car.y += dy / len * 18 * dt;
-    car.model.position.copy(toScene(car.x, car.y)); car.model.rotation.y = Math.atan2(dx, dy);
+    car.model.position.copy(toScene(car.x, car.y)); car.model.rotation.y = -Math.atan2(dy, dx);
     if (car.charge > 0.9 && Math.random() < 0.03) { createExplosion(car.x, car.y, 34, 0xf97316); car.hp -= 20; car.charge = 0; }
     if (dist(car.x, car.y, world.player.x, world.player.y) < car.radius + world.player.radius + 10 && world.player.invuln <= 0) {
       world.player.hp -= 8;
@@ -403,7 +517,10 @@ function finishGame() {
 }
 function updateGame(dt, time) {
   if (!world.running || world.gameOver) return;
-  updatePlayer(dt); updateBullets(dt); updateCars(dt); updatePickups(dt); updateCombat(dt, time); updateExplosions(dt); updateWave(dt);
+  updatePlayer(dt); updateBullets(dt); updateBombs(dt); updateCars(dt); updatePickups(dt); updateCombat(dt, time); updateExplosions(dt); updateWave(dt);
+  if (world.zombies.length && time > audio.nextMoan) {
+    playZombieMoan(); audio.nextMoan = time + 3800 + Math.random() * 3600;
+  }
   hud.healthFill.style.width = `${(world.player.hp / world.player.maxHp) * 100}%`;
   hud.scoreValue.textContent = String(world.score);
 }
@@ -422,6 +539,9 @@ window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
   if (['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright'].includes(key)) event.preventDefault();
   input.keys.add(key);
+  if (!event.repeat && key === 'q') toggleWeapon();
+  if (!event.repeat && key === '1' && world.player) { world.player.weapon = 'pistol'; updateWeaponLabel(); }
+  if (!event.repeat && key === '2' && world.player) { world.player.weapon = 'bomb'; updateWeaponLabel(); }
   if (key === ' ') { input.bomb = true; event.preventDefault(); }
 });
 window.addEventListener('keyup', (event) => { input.keys.delete(event.key.toLowerCase()); if (event.key === ' ') input.bomb = false; });
@@ -443,11 +563,11 @@ leftStick.addEventListener('pointerdown', (event) => { leftStick.setPointerCaptu
 leftStick.addEventListener('pointermove', (event) => { if (event.pressure > 0 || leftStick.hasPointerCapture(event.pointerId)) updateTouchStick(event.clientX, event.clientY); });
 function releaseStick() { input.touchStick.active = false; input.touchStick.x = 0; input.touchStick.y = 0; stick.style.transform = 'translate(0px, 0px)'; }
 leftStick.addEventListener('pointerup', releaseStick); leftStick.addEventListener('pointercancel', releaseStick);
-const fireButton = document.getElementById('fireButton'); const bombButton = document.getElementById('bombButton');
+const fireButton = document.getElementById('fireButton'); const switchButton = document.getElementById('switchButton');
 fireButton.addEventListener('pointerdown', (event) => { event.preventDefault(); input.fire = true; });
 fireButton.addEventListener('pointerup', () => { input.fire = false; }); fireButton.addEventListener('pointerleave', () => { input.fire = false; });
 fireButton.addEventListener('pointercancel', () => { input.fire = false; });
-bombButton.addEventListener('pointerdown', (event) => { event.preventDefault(); input.bomb = true; });
+switchButton.addEventListener('pointerdown', (event) => { event.preventDefault(); toggleWeapon(); });
 hud.startButton.addEventListener('click', startGame);
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
