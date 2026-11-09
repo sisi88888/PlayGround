@@ -58,7 +58,19 @@
       </div>
     </div>
 
-    <script src="https://unpkg.com/three@0.149.0/build/three.min.js"></script>
-    <script src="game.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.149.0/build/three.module.js"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'https://unpkg.com/three@0.149.0/examples/jsm/loaders/GLTFLoader.js';
+      import * as SkeletonUtils from 'https://unpkg.com/three@0.149.0/examples/jsm/utils/SkeletonUtils.js';
+      window.THREE = { ...THREE, GLTFLoader, SkeletonUtils };
+      await import('./game.js');
+    </script>
   </body>
 </html>

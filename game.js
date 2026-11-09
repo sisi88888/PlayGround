@@ -18,9 +18,11 @@ renderer.setClearColor(0x071116);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x071116);
 scene.fog = new THREE.Fog(0x071116, 22, 52);
-const camera = new THREE.OrthographicCamera(-10, 10, 7, -7, 0.1, 100);
+const camera = new THREE.OrthographicCamera(-10, 10, 7, -7, 0.1, 150);
 camera.position.set(0, 32, 22);
 camera.lookAt(0, 0, 0);
+const cameraFocus = new THREE.Vector3();
+const cameraPosition = new THREE.Vector3();
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const mouseNdc = new THREE.Vector2();
@@ -41,10 +43,11 @@ fillLight.position.set(0, 4, 0);
 scene.add(fillLight);
 
 const world = {
-  width: 1200, height: 720, running: false, gameOver: false, score: 0, wave: 1,
+  width: 3200, height: 2000, running: false, gameOver: false, score: 0, wave: 1,
   spawnTimer: 0, zombies: [], bullets: [], bombs: [], pickups: [], explosions: [], cars: [],
   player: null, factor: 50, groundScale: 0.819, lastTime: 0, carTimer: 0,
 };
+const zombieAsset = { root: null, clips: [], failed: false };
 const input = {
   keys: new Set(), pointer: { x: 0, y: 0, down: false }, move: { x: 0, y: 0 },
   fire: false, bomb: false, touchStick: { active: false, x: 0, y: 0 },
@@ -123,8 +126,6 @@ function playZombieMoan() {
 function resizeCanvas() {
   const rect = document.getElementById('game-shell').getBoundingClientRect();
   renderer.setSize(rect.width, rect.height, false);
-  world.width = rect.width;
-  world.height = rect.height;
   const aspect = rect.width / rect.height;
   const viewHeight = rect.height / world.factor;
   camera.left = -viewHeight * aspect / 2;
@@ -133,11 +134,19 @@ function resizeCanvas() {
   camera.bottom = -viewHeight / 2;
   camera.updateProjectionMatrix();
   const plane = scene.getObjectByName('arena');
-  if (plane) plane.scale.set(rect.width / world.factor + 30, rect.height / (world.factor * world.groundScale) + 30, 1);
+  if (plane) plane.scale.set(world.width / world.factor + 4, world.height / (world.factor * world.groundScale) + 4, 1);
   if (world.player) {
     world.player.x = clamp(world.player.x, 20, world.width - 20);
     world.player.y = clamp(world.player.y, 20, world.height - 20);
+    updateCamera(1);
   }
+}
+function updateCamera(dt = 0.016) {
+  const focus = world.player ? toScene(world.player.x, world.player.y) : new THREE.Vector3();
+  cameraFocus.lerp(focus, Math.min(1, dt * 10));
+  cameraPosition.set(cameraFocus.x, 32, cameraFocus.z + 22);
+  camera.position.lerp(cameraPosition, Math.min(1, dt * 10));
+  camera.lookAt(cameraFocus.x, 0, cameraFocus.z);
 }
 function toScene(x, y, height = 0) {
   return new THREE.Vector3((x - world.width / 2) / world.factor, height, (y - world.height / 2) / (world.factor * world.groundScale));
@@ -163,16 +172,16 @@ function addArena() {
   floor.name = 'arena';
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
-  floor.scale.set(world.width / world.factor + 30, world.height / (world.factor * world.groundScale) + 30, 1);
+  floor.scale.set(world.width / world.factor + 4, world.height / (world.factor * world.groundScale) + 4, 1);
   scene.add(floor);
-  const grid = new THREE.GridHelper(80, 48, 0x26373b, 0x1b2b30);
+  const grid = new THREE.GridHelper(80, 80, 0x26373b, 0x1b2b30);
   grid.position.y = 0.006;
   grid.material.transparent = true;
   grid.material.opacity = 0.3;
   scene.add(grid);
-  for (let i = 0; i < 12; i += 1) {
-    const x = (Math.random() - 0.5) * 34;
-    const z = (Math.random() - 0.5) * 28;
+  for (let i = 0; i < 34; i += 1) {
+    const x = (Math.random() - 0.5) * (world.width / world.factor - 6);
+    const z = (Math.random() - 0.5) * (world.height / (world.factor * world.groundScale) - 6);
     const h = 0.4 + Math.random() * 1.1;
     const crate = mesh(new THREE.BoxGeometry(0.65, h, 0.65), mat(i % 2 ? 0x303b3c : 0x3e4541), scene, x, h / 2, z);
     crate.receiveShadow = true;
@@ -180,6 +189,61 @@ function addArena() {
 }
 addArena();
 
+function applyZombieAsset(zombie) {
+  if (!zombieAsset.root || !window.THREE.SkeletonUtils) return false;
+  const replacement = THREE.SkeletonUtils.clone(zombieAsset.root);
+  replacement.traverse((part) => {
+    if (!part.isMesh) return;
+    part.castShadow = true;
+    part.receiveShadow = true;
+    const cloneMaterial = (material) => {
+      const instance = material.clone();
+      if (instance.emissive) instance.userData.baseEmissive = instance.emissive.clone();
+      return instance;
+    };
+    part.material = Array.isArray(part.material) ? part.material.map(cloneMaterial) : cloneMaterial(part.material);
+  });
+  replacement.updateWorldMatrix(true, true);
+  const bounds = new THREE.Box3().setFromObject(replacement);
+  const size = bounds.getSize(new THREE.Vector3());
+  if (!Number.isFinite(size.y) || size.y < 0.1) return false;
+  const center = bounds.getCenter(new THREE.Vector3());
+  const scale = 1.65 / size.y;
+  replacement.scale.setScalar(scale);
+  replacement.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
+  const root = new THREE.Group();
+  root.add(replacement);
+  if (zombie.model) {
+    scene.remove(zombie.model);
+    zombie.model.traverse((part) => { if (part.geometry) part.geometry.dispose(); });
+  }
+  scene.add(root);
+  zombie.model = root;
+  zombie.limbs = [];
+  zombie.mixer = new THREE.AnimationMixer(replacement);
+  if (zombieAsset.clips.length) {
+    zombie.action = zombie.mixer.clipAction(zombieAsset.clips[0]);
+    zombie.action.setLoop(THREE.LoopRepeat, Infinity);
+    zombie.action.play();
+  }
+  syncEntity(zombie);
+  return true;
+}
+function loadZombieAsset() {
+  if (!THREE.GLTFLoader) {
+    console.warn('GLTFLoader unavailable; using procedural zombies.');
+    return;
+  }
+  const loader = new THREE.GLTFLoader();
+  loader.load('public/models/zombie.glb', (gltf) => {
+    zombieAsset.root = gltf.scene;
+    zombieAsset.clips = gltf.animations || [];
+    for (const zombie of world.zombies) applyZombieAsset(zombie);
+  }, undefined, (error) => {
+    zombieAsset.failed = true;
+    console.warn('Zombie model failed to load; using procedural fallback.', error);
+  });
+}
 function makeZombieModel(zombie) {
   const root = new THREE.Group();
   const shade = Math.random();
@@ -224,6 +288,7 @@ function makeZombieModel(zombie) {
   zombie.model = root;
   zombie.limbs = root.children.filter((part) => part.geometry && part.geometry.type === 'CapsuleGeometry');
   syncEntity(zombie);
+  if (zombieAsset.root) applyZombieAsset(zombie);
 }
 function makePlayerModel(player) {
   const root = new THREE.Group();
@@ -272,18 +337,23 @@ function createZombie(x, y) {
   makeZombieModel(zombie);
   return zombie;
 }
+function spawnAroundPlayer(minScale = 0.82, maxScale = 1.08) {
+  const player = world.player || { x: world.width / 2, y: world.height / 2 };
+  const angle = Math.random() * Math.PI * 2;
+  const scale = minScale + Math.random() * (maxScale - minScale);
+  const radiusX = (camera.right - camera.left) * world.factor * 0.52 * scale;
+  const radiusY = (camera.top - camera.bottom) * world.factor * world.groundScale * 0.52 * scale;
+  return {
+    x: clamp(player.x + Math.cos(angle) * radiusX, 28, world.width - 28),
+    y: clamp(player.y + Math.sin(angle) * radiusY, 28, world.height - 28),
+  };
+}
 function spawnWave() {
   const count = Math.min(5 + world.wave * 2, 24);
   world.spawnTimer = 0;
   for (let i = 0; i < count; i += 1) {
-    const side = Math.floor(Math.random() * 4);
-    let x = Math.random() * world.width;
-    let y = Math.random() * world.height;
-    if (side === 0) y = -40;
-    if (side === 1) x = world.width + 40;
-    if (side === 2) y = world.height + 40;
-    if (side === 3) x = -40;
-    world.zombies.push(createZombie(x, y));
+    const point = spawnAroundPlayer(0.9, 1.18);
+    world.zombies.push(createZombie(point.x, point.y));
   }
 }
 function addPickup(x, y, type = 'ammo') {
@@ -443,11 +513,20 @@ function updateCombat(dt, time) {
     z.phase += dt * 5;
     z.model.position.copy(toScene(z.x, z.y));
     z.model.position.y = Math.abs(Math.sin(z.phase)) * 0.035;
-    z.limbs.forEach((limb, index) => { limb.rotation.z += Math.sin(time * 0.008 + index) * 0.0015; });
+    if (z.mixer) z.mixer.update(dt);
+    else z.limbs.forEach((limb, index) => { limb.rotation.z += Math.sin(time * 0.008 + index) * 0.0015; });
     if (z.hitFlash > 0) {
       z.hitFlash -= dt;
-      z.model.traverse((part) => { if (part.isMesh) part.material.emissive?.setHex(0x756f61); });
-    } else z.model.traverse((part) => { if (part.isMesh) part.material.emissive?.setHex(0x000000); });
+      z.model.traverse((part) => {
+        if (!part.isMesh) return;
+        const materials = Array.isArray(part.material) ? part.material : [part.material];
+        materials.forEach((material) => material.emissive?.setHex(0x756f61));
+      });
+    } else z.model.traverse((part) => {
+      if (!part.isMesh) return;
+      const materials = Array.isArray(part.material) ? part.material : [part.material];
+      materials.forEach((material) => material.emissive?.copy(material.userData.baseEmissive || new THREE.Color(0x000000)));
+    });
     if (dist(z.x, z.y, world.player.x, world.player.y) < z.radius + world.player.radius && world.player.invuln <= 0) {
       world.player.hp -= z.damage;
       world.player.invuln = 0.55;
@@ -472,9 +551,8 @@ function updateCars(dt) {
   world.carTimer -= dt;
   if (world.cars.length < 3 && world.carTimer <= 0) {
     world.carTimer = 7 + Math.random() * 8;
-    const side = Math.floor(Math.random() * 4);
-    createCar(side === 1 ? world.width + 50 : side === 3 ? -50 : Math.random() * world.width,
-      side === 0 ? -50 : side === 2 ? world.height + 50 : Math.random() * world.height);
+    const point = spawnAroundPlayer(0.9, 1.15);
+    createCar(point.x, point.y);
   }
   for (let i = world.cars.length - 1; i >= 0; i -= 1) {
     const car = world.cars[i]; car.charge += dt * 0.2;
@@ -518,6 +596,7 @@ function finishGame() {
 function updateGame(dt, time) {
   if (!world.running || world.gameOver) return;
   updatePlayer(dt); updateBullets(dt); updateBombs(dt); updateCars(dt); updatePickups(dt); updateCombat(dt, time); updateExplosions(dt); updateWave(dt);
+  updateCamera(dt);
   if (world.zombies.length && time > audio.nextMoan) {
     playZombieMoan(); audio.nextMoan = time + 3800 + Math.random() * 3600;
   }
@@ -532,8 +611,8 @@ function tick(timestamp) {
   requestAnimationFrame(tick);
 }
 function setPointerPosition(clientX, clientY) {
-  const point = fromScene(clientX, clientY);
-  input.pointer.x = point.x; input.pointer.y = point.y;
+  input.pointer.x = clientX;
+  input.pointer.y = clientY;
 }
 window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
@@ -572,5 +651,9 @@ hud.startButton.addEventListener('click', startGame);
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 world.player = createPlayer();
-const initialAim = fromScene(world.width * 0.75, world.height * 0.5); input.pointer.x = initialAim.x; input.pointer.y = initialAim.y;
+const canvasRect = canvas.getBoundingClientRect();
+input.pointer.x = canvasRect.left + canvasRect.width * 0.75;
+input.pointer.y = canvasRect.top + canvasRect.height * 0.5;
+updateCamera(1);
+loadZombieAsset();
 requestAnimationFrame(tick);
