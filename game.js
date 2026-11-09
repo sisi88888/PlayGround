@@ -47,7 +47,8 @@ const world = {
   spawnTimer: 0, zombies: [], bullets: [], bombs: [], pickups: [], explosions: [], cars: [],
   player: null, factor: 50, groundScale: 0.819, lastTime: 0, carTimer: 0,
 };
-const zombieAsset = { root: null, clips: [], failed: false };
+const zombieAsset = { root: null, clips: [], failed: false, ready: null };
+let gameStartPending = false;
 const input = {
   keys: new Set(), pointer: { x: 0, y: 0, down: false }, move: { x: 0, y: 0 },
   fire: false, bomb: false, touchStick: { active: false, x: 0, y: 0 },
@@ -230,19 +231,26 @@ function applyZombieAsset(zombie) {
   return true;
 }
 function loadZombieAsset() {
-  if (!THREE.GLTFLoader) {
-    console.warn('GLTFLoader unavailable; using procedural zombies.');
-    return;
-  }
-  const loader = new THREE.GLTFLoader();
-  loader.load('public/models/zombie.glb', (gltf) => {
-    zombieAsset.root = gltf.scene;
-    zombieAsset.clips = gltf.animations || [];
-    for (const zombie of world.zombies) applyZombieAsset(zombie);
-  }, undefined, (error) => {
-    zombieAsset.failed = true;
-    console.warn('Zombie model failed to load; using procedural fallback.', error);
+  zombieAsset.ready = new Promise((resolve) => {
+    if (!THREE.GLTFLoader) {
+      zombieAsset.failed = true;
+      console.warn('GLTFLoader unavailable; using procedural zombies.');
+      resolve(false);
+      return;
+    }
+    const loader = new THREE.GLTFLoader();
+    loader.load('public/models/zombie.glb', (gltf) => {
+      zombieAsset.root = gltf.scene;
+      zombieAsset.clips = gltf.animations || [];
+      for (const zombie of world.zombies) applyZombieAsset(zombie);
+      resolve(true);
+    }, undefined, (error) => {
+      zombieAsset.failed = true;
+      console.warn('Zombie model failed to load; using procedural fallback.', error);
+      resolve(false);
+    });
   });
+  return zombieAsset.ready;
 }
 function makeZombieModel(zombie) {
   const root = new THREE.Group();
@@ -265,10 +273,10 @@ function makeZombieModel(zombie) {
     const sleeve = mesh(new THREE.CapsuleGeometry(0.11, 0.2, 3, 6), outfit, root, side * 0.42, 1.00, 0.01);
     sleeve.rotation.z = side * -0.58;
     // Broad fabric panels keep the exaggerated silhouette clearly clothed and smooth.
-    const chest = mesh(new THREE.SphereGeometry(1, 14, 10), outfit, root, side * 0.19, 0.89, 0.29);
-    chest.scale.set(0.17, 0.15, 0.105);
-    const seam = mesh(new THREE.BoxGeometry(0.018, 0.27, 0.018), accent, root, side * 0.19, 0.89, 0.388);
-    const strap = mesh(new THREE.BoxGeometry(0.045, 0.35, 0.035), mat(0x292d2c), root, side * 0.2, 0.88, 0.405);
+    const chest = mesh(new THREE.SphereGeometry(1, 16, 12), outfit, root, side * 0.19, 0.9, 0.29);
+    chest.scale.set(0.195, 0.17, 0.12);
+    const seam = mesh(new THREE.BoxGeometry(0.018, 0.29, 0.018), accent, root, side * 0.19, 0.9, 0.397);
+    const strap = mesh(new THREE.BoxGeometry(0.045, 0.37, 0.035), mat(0x292d2c), root, side * 0.2, 0.88, 0.416);
     strap.rotation.z = side * 0.12;
   }
   const neck = mesh(new THREE.CylinderGeometry(0.10, 0.13, 0.18, 8), skin, root, 0, 1.21, 0);
@@ -397,9 +405,25 @@ function resetGame() {
   hud.waveValue.textContent = '1'; hud.scoreValue.textContent = '0';
   spawnWave();
 }
-function startGame() {
-  resetGame();
+async function startGame() {
+  if (gameStartPending) return;
+  gameStartPending = true;
+  const button = hud.overlay.querySelector('button');
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Loading…';
+  }
   startAudio();
+  if (zombieAsset.ready && !zombieAsset.root && !zombieAsset.failed) {
+    hud.status.textContent = 'Loading 3D zombies…';
+    await zombieAsset.ready;
+  }
+  if (button?.isConnected) {
+    button.disabled = false;
+    button.textContent = button.id === 'restartButton' ? 'Play Again' : 'Start Game';
+  }
+  gameStartPending = false;
+  resetGame();
   hud.overlay.classList.add('hidden');
 }
 function fireBullet() {
