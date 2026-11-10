@@ -74,6 +74,30 @@ const shared = {
   green: mat(0x668d50), darkGreen: mat(0x304737), pale: mat(0x9ca66a), eye: mat(0xf5ebca, 0.35),
   red: mat(0x613d49), black: mat(0x111b20), cloth: mat(0x753e4d), steel: mat(0x69757a, 0.45),
 };
+function makeBladeNormalMap() {
+  const size = 64;
+  const data = new Uint8Array(size * size * 4);
+  const heightAt = (u, v) => 0.48 * Math.sin(u * Math.PI * 8) + 0.22 * Math.cos(v * Math.PI * 12) + 0.3 * Math.cos((u - v) * Math.PI * 5);
+  for (let y = 0; y < size; y += 1) for (let x = 0; x < size; x += 1) {
+    const u = x / size; const v = y / size; const i = (y * size + x) * 4;
+    const dx = (heightAt(u + 1 / size, v) - heightAt(u - 1 / size, v)) * 2.4;
+    const dy = (heightAt(u, v + 1 / size) - heightAt(u, v - 1 / size)) * 2.4;
+    const length = Math.hypot(dx, dy, 1);
+    data[i] = Math.round((-dx / length * 0.5 + 0.5) * 255);
+    data[i + 1] = Math.round((-dy / length * 0.5 + 0.5) * 255);
+    data[i + 2] = Math.round((1 / length * 0.5 + 0.5) * 255);
+    data[i + 3] = 255;
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  texture.wrapS = THREE.RepeatWrapping; texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1, 1); texture.needsUpdate = true;
+  return texture;
+}
+const bladeNormalMap = makeBladeNormalMap();
+const bladeMaterial = mat(0xc9ffe7, 0.25, {
+  metalness: 0.72, normalMap: bladeNormalMap, normalScale: new THREE.Vector2(0.9, 0.9),
+  emissive: 0x35d895, emissiveIntensity: 0.55,
+});
 
 function startAudio() {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -220,7 +244,7 @@ function addArena() {
 addArena();
 
 function applyZombieAsset(zombie) {
-  if (!zombieAsset.root || !window.THREE.SkeletonUtils) return false;
+  if (zombie.isBoss || !zombieAsset.root || !window.THREE.SkeletonUtils) return false;
   const replacement = THREE.SkeletonUtils.clone(zombieAsset.root);
   replacement.traverse((part) => {
     if (!part.isMesh) return;
@@ -275,7 +299,7 @@ function loadZombieAsset() {
     loader.load('public/models/zombie.glb', (gltf) => {
       zombieAsset.root = gltf.scene;
       zombieAsset.clips = gltf.animations || [];
-      for (const zombie of world.zombies) applyZombieAsset(zombie);
+      for (const zombie of world.zombies) if (!zombie.isBoss) applyZombieAsset(zombie);
       resolve(true);
     }, undefined, (error) => {
       zombieAsset.failed = true;
@@ -314,7 +338,44 @@ function damageZombie(zombie, damage) {
   zombie.hp = Math.max(0, zombie.hp - Math.max(1, damage - zombie.armor));
   updateZombieHealthBar(zombie);
 }
+function makeBossModel(zombie) {
+  const root = new THREE.Group();
+  const hide = mat(0x282b38, 0.38, { metalness: 0.62 });
+  const armor = mat(0x563444, 0.3, { metalness: 0.72 });
+  const bone = mat(0xd0a75c, 0.34, { metalness: 0.48 });
+  const core = mat(0xff4b64, 0.22, { emissive: 0xf21e46, emissiveIntensity: 1.8 });
+  const head = mesh(new THREE.IcosahedronGeometry(0.42, 1), hide, root, 0, 1.78, 0);
+  head.scale.set(0.9, 1.12, 0.84);
+  mesh(new THREE.SphereGeometry(0.68, 12, 10), armor, root, 0, 0.96, 0).scale.set(1.12, 1.06, 0.78);
+  mesh(new THREE.SphereGeometry(0.32, 12, 10), core, root, 0, 1.12, 0.59).scale.set(1, 1.12, 0.42);
+  for (const side of [-1, 1]) {
+    const shoulder = mesh(new THREE.DodecahedronGeometry(0.48, 0), armor, root, side * 0.75, 1.43, 0.02);
+    shoulder.scale.set(1.25, 0.86, 0.92);
+    for (let spike = 0; spike < 3; spike += 1) {
+      const horn = mesh(new THREE.ConeGeometry(0.13, 0.62, 5), bone, root, side * (0.54 + spike * 0.19), 1.83 + (spike === 1 ? 0.14 : 0), -0.02);
+      horn.rotation.z = side * (-0.62 + spike * 0.2);
+    }
+    const arm = mesh(new THREE.CapsuleGeometry(0.17, 0.48, 4, 8), hide, root, side * 0.83, 0.88, 0.04);
+    arm.rotation.z = side * -0.34;
+    mesh(new THREE.ConeGeometry(0.19, 0.52, 5), bone, root, side * 0.92, 0.38, 0.16).rotation.z = Math.PI;
+    mesh(new THREE.CapsuleGeometry(0.19, 0.38, 4, 8), armor, root, side * 0.31, 0.31, 0.02);
+    mesh(new THREE.BoxGeometry(0.38, 0.18, 0.5), hide, root, side * 0.31, 0.08, 0.08);
+  }
+  for (const side of [-1, 1]) {
+    mesh(new THREE.SphereGeometry(0.09, 8, 8), core, root, side * 0.17, 1.81, 0.34);
+  }
+  const crown = mesh(new THREE.ConeGeometry(0.23, 0.7, 5), bone, root, 0, 2.26, -0.02);
+  crown.rotation.z = Math.PI;
+  root.traverse((part) => { if (part.isMesh) part.userData.baseMaterial = part.material; });
+  addZombieHealthBar(zombie, root);
+  root.scale.setScalar(zombie.variant.modelScale);
+  scene.add(root);
+  zombie.model = root;
+  zombie.limbs = root.children.filter((part) => part.geometry && part.geometry.type === 'CapsuleGeometry');
+  syncEntity(zombie);
+}
 function makeZombieModel(zombie) {
+  if (zombie.isBoss) { makeBossModel(zombie); return; }
   const root = new THREE.Group();
   const variant = zombie.variant;
   const shade = Math.random();
@@ -399,12 +460,14 @@ function makePlayerModel(player) {
   const orbit = new THREE.Group();
   orbit.name = 'orbiting-blades';
   orbit.visible = false;
-  const orbitRing = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.025, 6, 32), mat(0x64f0b2, 0.3, { emissive: 0x24b77c, emissiveIntensity: 1.1 }));
+  const orbitRing = new THREE.Mesh(new THREE.TorusGeometry(1.12, 0.035, 8, 40), mat(0x64f0b2, 0.3, { emissive: 0x24b77c, emissiveIntensity: 1.1 }));
   orbitRing.rotation.x = Math.PI / 2;
   orbit.add(orbitRing);
   for (let i = 0; i < 3; i += 1) {
-    const blade = mesh(new THREE.ConeGeometry(0.12, 0.42, 5), mat(0xc9ffe7, 0.25, { emissive: 0x49efa3, emissiveIntensity: 0.75 }), orbit, Math.cos(i * Math.PI * 2 / 3) * 0.72, 0.12, Math.sin(i * Math.PI * 2 / 3) * 0.72);
+    const angle = i * Math.PI * 2 / 3;
+    const blade = mesh(new THREE.ConeGeometry(0.19, 0.62, 6), bladeMaterial, orbit, Math.cos(angle) * 1.12, 0.14, Math.sin(angle) * 1.12);
     blade.rotation.x = Math.PI / 2;
+    blade.rotation.z = angle;
   }
   root.add(orbit);
   player.orbitModel = orbit;
@@ -422,7 +485,7 @@ function syncEntity(entity) {
   entity.model.position.set(position.x, 0, position.z);
 }
 function createPlayer() {
-  const player = { x: world.width / 2, y: world.height / 2, radius: 18, speed: 220, hp: 100, maxHp: 100, fireCooldown: 0, angle: 0, weaponLevel: 1, damage: 24, fireRate: 0.48, projectileCount: 1, magnet: 300, armor: 0, regen: 0, orbitLevel: 0, orbitTimer: 0, impulseRadius: 105, impulseDamage: 72, impulseCooldown: 9, bombCooldown: 0, xp: 0, level: 1, xpNext: 6, upgradeLevels: {}, gunFlash: 0, invuln: 0 };
+  const player = { x: world.width / 2, y: world.height / 2, radius: 18, speed: 220, hp: 100, maxHp: 100, fireCooldown: 0, angle: 0, weaponLevel: 1, damage: 24, fireRate: 0.48, projectileCount: 1, magnet: 300, armor: 0, regen: 0, orbitLevel: 0, orbitTimer: 0, impulseRadius: 525, impulseDamage: 72, impulseCooldown: 9, bombCooldown: 0, xp: 0, level: 1, xpNext: 6, upgradeLevels: {}, gunFlash: 0, invuln: 0 };
   makePlayerModel(player);
   updateWeaponLabel(player);
   return player;
@@ -500,8 +563,19 @@ function spawnWave() {
 function addPickup(x, y, type = 'xp', value = 1) {
   const group = new THREE.Group();
   const color = type === 'health' ? 0xff647c : 0x58f0ae;
-  const crystal = mesh(new THREE.OctahedronGeometry(0.22, 0), mat(color, 0.25, { emissive: color, emissiveIntensity: 0.65 }), group, 0, 0.42, 0);
+  const itemMaterial = mat(color, 0.22, { metalness: 0.28, emissive: color, emissiveIntensity: 0.75 });
+  const crystal = mesh(new THREE.OctahedronGeometry(type === 'health' ? 0.24 : 0.22, 1), itemMaterial, group, 0, 0.42, 0);
   crystal.rotation.set(0.3, 0.45, 0.3);
+  const inner = mesh(new THREE.OctahedronGeometry(0.11, 0), mat(0xf5fff9, 0.2, { emissive: color, emissiveIntensity: 1.1 }), group, 0, 0.42, 0);
+  inner.rotation.set(0.5, 0.25, 0.2);
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.025, 6, 24), mat(color, 0.3, { emissive: color, emissiveIntensity: 0.8 }));
+  halo.rotation.x = Math.PI / 2;
+  halo.position.y = 0.39;
+  group.add(halo);
+  if (type === 'health') {
+    mesh(new THREE.BoxGeometry(0.08, 0.28, 0.08), mat(0xfff0f2, 0.35), group, 0, 0.42, 0.2);
+    mesh(new THREE.BoxGeometry(0.28, 0.08, 0.08), mat(0xfff0f2, 0.35), group, 0, 0.42, 0.2);
+  }
   scene.add(group);
   const item = { x, y, radius: 11, type, value, bob: Math.random() * Math.PI * 2, model: group };
   syncEntity(item);
@@ -676,7 +750,7 @@ function updateCombat(dt, time) {
     else z.limbs.forEach((limb, index) => { limb.rotation.z += Math.sin(time * 0.008 + index) * 0.0015; });
     const orbit = world.player.orbitModel;
     if (orbit) { orbit.visible = world.player.orbitLevel > 0; orbit.rotation.y += dt * (2.1 + world.player.orbitLevel * 0.35); }
-    if (world.player.orbitLevel > 0 && world.player.orbitTimer <= 0 && dist(z.x, z.y, world.player.x, world.player.y) < 70 + world.player.orbitLevel * 15) {
+    if (world.player.orbitLevel > 0 && world.player.orbitTimer <= 0 && dist(z.x, z.y, world.player.x, world.player.y) < 105 + world.player.orbitLevel * 20) {
       damageZombie(z, 18 + world.player.orbitLevel * 13); z.hitFlash = 0.08; world.player.orbitTimer = 0.22;
       if (z.hp <= 0) {
         defeatZombie(z, i);
@@ -746,7 +820,7 @@ const upgrades = [
   { id: 'vitality', name: 'Запас сил', desc: '+25 к максимуму здоровья и лечение', max: 5, apply: (p) => { p.maxHp += 25; p.hp = Math.min(p.maxHp, p.hp + 25); } },
   { id: 'armor', name: 'Бронежилет', desc: 'Получаемый урон меньше на 2', max: 5, apply: (p) => { p.armor += 2; } },
   { id: 'magnet', name: 'Магнит спермача', desc: 'Подбор спермача с большего расстояния', max: 5, apply: (p) => { p.magnet += 65; } },
-  { id: 'orbit', name: 'Орбитальные клинки', desc: 'Клинки вращаются вокруг героя и ранят врагов', max: 4, apply: (p) => { p.orbitLevel += 1; } },
+  { id: 'orbit', name: 'Орбитальные клинки', desc: 'Шире орбита и сильнее урон по ближайшим врагам', max: 4, apply: (p) => { p.orbitLevel += 1; } },
   { id: 'multishot', name: 'Двойной выстрел', desc: '+1 снаряд за атаку', max: 4, apply: (p) => { p.projectileCount += 1; } },
   { id: 'regen', name: 'Регенерация', desc: 'Восстановление 1.2 здоровья в секунду', max: 4, apply: (p) => { p.regen += 1.2; } },
 ];
