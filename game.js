@@ -11,6 +11,8 @@ const hud = {
   overlay: document.getElementById('overlay'),
   upgradeOverlay: document.getElementById('upgradeOverlay'),
   upgradeChoices: document.getElementById('upgradeChoices'),
+  bossRewardOverlay: document.getElementById('bossRewardOverlay'),
+  bossRewardChoices: document.getElementById('bossRewardChoices'),
   pauseOverlay: document.getElementById('pauseOverlay'),
   startButton: document.getElementById('startButton'),
   resumeButton: document.getElementById('resumeButton'),
@@ -55,8 +57,8 @@ scene.add(fillLight);
 
 const world = {
   width: 3200, height: 2000, running: false, paused: false, gameOver: false, score: 0, kills: 0, wave: 1,
-  elapsed: 0, spawnTimer: 0, zombies: [], bullets: [], bombs: [], pickups: [], explosions: [], cars: [],
-  player: null, factor: 50, groundScale: 0.819, lastTime: 0, carTimer: 0,
+  elapsed: 0, spawnTimer: 0, zombies: [], bullets: [], pickups: [], explosions: [], cars: [],
+  player: null, factor: 50, groundScale: 0.819, lastTime: 0, carTimer: 0, bossSpawnedWave: 0,
 };
 const zombieAsset = { root: null, clips: [], failed: false, ready: null };
 let gameStartPending = false;
@@ -133,6 +135,22 @@ function playZombieMoan() {
   volume.gain.exponentialRampToValueAtTime(0.0001, now + 0.95);
   osc.connect(filter); filter.connect(volume); volume.connect(audio.master);
   wobble.start(now); osc.start(now); wobble.stop(now + 1); osc.stop(now + 1);
+}
+function playImpulseSound() {
+  if (!audio.context || audio.context.state !== 'running') return;
+  const ctx = audio.context; const now = ctx.currentTime;
+  const oscillator = ctx.createOscillator(); const wobble = ctx.createOscillator();
+  const wobbleDepth = ctx.createGain(); const filter = ctx.createBiquadFilter(); const volume = ctx.createGain();
+  oscillator.type = 'sawtooth';
+  oscillator.frequency.setValueAtTime(115, now);
+  oscillator.frequency.exponentialRampToValueAtTime(48, now + 0.22);
+  wobble.frequency.value = 24; wobbleDepth.gain.value = 32;
+  wobble.connect(wobbleDepth); wobbleDepth.connect(oscillator.frequency);
+  filter.type = 'lowpass'; filter.frequency.setValueAtTime(420, now); filter.frequency.exponentialRampToValueAtTime(130, now + 0.24);
+  volume.gain.setValueAtTime(0.0001, now); volume.gain.linearRampToValueAtTime(0.24, now + 0.025);
+  volume.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+  oscillator.connect(filter); filter.connect(volume); volume.connect(audio.master);
+  wobble.start(now); oscillator.start(now); wobble.stop(now + 0.29); oscillator.stop(now + 0.29);
 }
 
 function resizeCanvas() {
@@ -268,16 +286,19 @@ function loadZombieAsset() {
   return zombieAsset.ready;
 }
 function addZombieHealthBar(zombie, root) {
+  const boss = zombie.isBoss;
+  const height = boss ? 2.35 : 2.03;
+  const width = boss ? 1.55 : 0.88;
   const background = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x171719, transparent: true, opacity: 0.94, depthTest: false, depthWrite: false }));
-  background.position.set(0, 2.03, 0);
-  background.scale.set(0.94, 0.12, 1);
+  background.position.set(0, height, 0);
+  background.scale.set(width + 0.12, boss ? 0.2 : 0.12, 1);
   background.renderOrder = 20;
-  const fill = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x6fd17a, transparent: true, depthTest: false, depthWrite: false }));
-  fill.position.set(0, 2.03, 0.01);
-  fill.scale.set(0.88, 0.065, 1);
+  const fill = new THREE.Sprite(new THREE.SpriteMaterial({ color: boss ? 0xff4b5c : 0x6fd17a, transparent: true, depthTest: false, depthWrite: false }));
+  fill.position.set(0, height, 0.01);
+  fill.scale.set(width, boss ? 0.12 : 0.065, 1);
   fill.renderOrder = 21;
   root.add(background, fill);
-  zombie.healthBar = { background, fill, width: 0.88 };
+  zombie.healthBar = { background, fill, width };
   updateZombieHealthBar(zombie);
 }
 function updateZombieHealthBar(zombie) {
@@ -287,7 +308,7 @@ function updateZombieHealthBar(zombie) {
   fill.visible = ratio > 0;
   fill.scale.x = width * ratio;
   fill.position.x = -(width * (1 - ratio)) / 2;
-  fill.material.color.setHex(ratio > 0.55 ? 0x75d477 : ratio > 0.25 ? 0xe7bd4c : 0xe34e4e);
+  fill.material.color.setHex(zombie.isBoss ? 0xff4b5c : ratio > 0.55 ? 0x75d477 : ratio > 0.25 ? 0xe7bd4c : 0xe34e4e);
 }
 function damageZombie(zombie, damage) {
   zombie.hp = Math.max(0, zombie.hp - Math.max(1, damage - zombie.armor));
@@ -298,10 +319,10 @@ function makeZombieModel(zombie) {
   const variant = zombie.variant;
   const shade = Math.random();
   const skin = mat(variant.skin[shade > 0.5 ? 0 : 1]);
-  const outfit = mat(variant.outfits[Math.floor(Math.random() * variant.outfits.length)]);
-  const accent = mat(variant.accent);
+  const outfit = mat(zombie.isBoss ? 0x4a1724 : variant.outfits[Math.floor(Math.random() * variant.outfits.length)]);
+  const accent = mat(zombie.isBoss ? 0xe7a83e : variant.accent);
   const bootMat = mat(0x25292a);
-  const bodyWidth = variant.id === 'brute' ? 1.32 : variant.id === 'runner' ? 0.82 : 1;
+  const bodyWidth = zombie.isBoss ? 1.65 : variant.id === 'brute' ? 1.32 : variant.id === 'runner' ? 0.82 : 1;
   // Ragged, fully clothed silhouettes with distinctive infected silhouettes.
   const torso = mesh(new THREE.CapsuleGeometry(0.34, 0.42, 4, 8), outfit, root, 0, 0.79, 0);
   torso.scale.set(1.05 * bodyWidth, variant.id === 'brute' ? 1.02 : 0.9, 0.77);
@@ -327,7 +348,14 @@ function makeZombieModel(zombie) {
   const neck = mesh(new THREE.CylinderGeometry(0.10, 0.13, 0.18, 8), skin, root, 0, 1.21, 0);
   const head = mesh(new THREE.SphereGeometry(0.23, 12, 10), skin, root, 0, 1.42, 0.015);
   head.scale.set(variant.id === 'brute' ? 1.1 : 0.88, variant.id === 'runner' ? 0.9 : 1.04, 0.83);
-  if (variant.id === 'brute') {
+  if (zombie.isBoss) {
+    for (const side of [-1, 1]) {
+      const pauldron = mesh(new THREE.SphereGeometry(0.28, 10, 8), accent, root, side * 0.62, 1.12, 0.08);
+      pauldron.scale.set(1.25, 0.8, 0.95);
+      const horn = mesh(new THREE.ConeGeometry(0.12, 0.42, 6), accent, root, side * 0.18, 1.76, 0.02);
+      horn.rotation.z = side * -0.28;
+    }
+  } else if (variant.id === 'brute') {
     for (const side of [-1, 1]) {
       const pauldron = mesh(new THREE.SphereGeometry(0.2, 8, 6), accent, root, side * 0.43, 1.08, 0.08);
       pauldron.scale.set(1.2, 0.78, 0.82);
@@ -351,6 +379,7 @@ function makeZombieModel(zombie) {
   }
   root.traverse((part) => { if (part.isMesh) part.userData.baseMaterial = part.material; });
   addZombieHealthBar(zombie, root);
+  root.scale.setScalar(variant.modelScale || 1);
   scene.add(root);
   zombie.model = root;
   zombie.limbs = root.children.filter((part) => part.geometry && part.geometry.type === 'CapsuleGeometry');
@@ -393,7 +422,7 @@ function syncEntity(entity) {
   entity.model.position.set(position.x, 0, position.z);
 }
 function createPlayer() {
-  const player = { x: world.width / 2, y: world.height / 2, radius: 18, speed: 220, hp: 100, maxHp: 100, fireCooldown: 0, angle: 0, weaponLevel: 1, damage: 24, fireRate: 0.48, projectileCount: 1, magnet: 300, armor: 0, regen: 0, orbitLevel: 0, orbitTimer: 0, bombCooldown: 0, xp: 0, level: 1, xpNext: 6, upgradeLevels: {}, gunFlash: 0, invuln: 0 };
+  const player = { x: world.width / 2, y: world.height / 2, radius: 18, speed: 220, hp: 100, maxHp: 100, fireCooldown: 0, angle: 0, weaponLevel: 1, damage: 24, fireRate: 0.48, projectileCount: 1, magnet: 300, armor: 0, regen: 0, orbitLevel: 0, orbitTimer: 0, impulseRadius: 105, impulseDamage: 72, impulseCooldown: 9, bombCooldown: 0, xp: 0, level: 1, xpNext: 6, upgradeLevels: {}, gunFlash: 0, invuln: 0 };
   makePlayerModel(player);
   updateWeaponLabel(player);
   return player;
@@ -407,7 +436,7 @@ function triggerImpulse() {
   input.bomb = true;
 }
 function togglePause() {
-  if (!world.running || world.gameOver || !world.player || !hud.upgradeOverlay.classList.contains('hidden')) return;
+  if (!world.running || world.gameOver || !world.player || !hud.upgradeOverlay.classList.contains('hidden') || !hud.bossRewardOverlay.classList.contains('hidden')) return;
   world.paused = !world.paused;
   hud.pauseOverlay.classList.toggle('hidden', !world.paused);
   hud.status.textContent = world.paused ? 'Игра на паузе' : 'Орда приближается';
@@ -434,6 +463,20 @@ function createZombie(x, y) {
   };
   makeZombieModel(zombie);
   return zombie;
+}
+function createBoss(x, y) {
+  const variant = {
+    id: 'boss', radius: 42, armor: 5, modelScale: 1.75, tint: 0xffc7a6,
+    skin: [0x56383b, 0x70464a], outfits: [0x4a1724], accent: 0xe7a83e,
+  };
+  const maxHp = 900 + world.wave * 90;
+  const boss = {
+    x, y, variant, radius: variant.radius, speed: 30 + world.wave * 0.8,
+    hp: maxHp, maxHp, damage: 24 + world.wave * 1.5, armor: variant.armor,
+    isBoss: true, hitFlash: 0, phase: Math.random() * 6.28, limbs: [],
+  };
+  makeZombieModel(boss);
+  return boss;
 }
 function spawnAroundPlayer(minScale = 0.82, maxScale = 1.08) {
   const player = world.player || { x: world.width / 2, y: world.height / 2 };
@@ -465,11 +508,15 @@ function addPickup(x, y, type = 'xp', value = 1) {
   world.pickups.push(item);
 }
 function defeatZombie(zombie, index) {
-  world.score += 1;
+  world.score += zombie.isBoss ? 10 : 1;
   world.kills += 1;
   scene.remove(zombie.model);
   world.zombies.splice(index, 1);
-  createExplosion(zombie.x, zombie.y, 22, 0x9ae6b4);
+  createExplosion(zombie.x, zombie.y, zombie.isBoss ? 70 : 22, zombie.isBoss ? 0xff5d73 : 0x9ae6b4);
+  if (zombie.isBoss) {
+    showBossRewards();
+    return;
+  }
   if (Math.random() < 0.88) addPickup(zombie.x, zombie.y, 'xp', 1 + (world.wave > 4 && Math.random() < 0.2 ? 1 : 0));
   if (Math.random() < 0.035) addPickup(zombie.x, zombie.y, 'health');
 }
@@ -490,15 +537,15 @@ function createCar(x, y) {
   world.cars.push(car);
 }
 function clearEntities() {
-  for (const list of [world.zombies, world.bullets, world.bombs, world.pickups, world.explosions, world.cars]) {
+  for (const list of [world.zombies, world.bullets, world.pickups, world.explosions, world.cars]) {
     for (const entity of list) if (entity.model) scene.remove(entity.model);
   }
 }
 function resetGame() {
   clearEntities();
   if (world.player?.model) scene.remove(world.player.model);
-  world.running = true; world.paused = false; world.gameOver = false; world.score = 0; world.kills = 0; world.wave = 1; world.elapsed = 0; world.spawnTimer = 1.5; world.carTimer = 9999;
-  world.zombies = []; world.bullets = []; world.bombs = []; world.pickups = []; world.explosions = []; world.cars = [];
+  world.running = true; world.paused = false; world.gameOver = false; world.score = 0; world.kills = 0; world.wave = 1; world.elapsed = 0; world.spawnTimer = 1.5; world.carTimer = 9999; world.bossSpawnedWave = 0;
+  world.zombies = []; world.bullets = []; world.pickups = []; world.explosions = []; world.cars = [];
   world.player = createPlayer();
   hud.status.textContent = 'Орда приближается';
   hud.waveValue.textContent = '1'; hud.scoreValue.textContent = '0'; hud.timeValue.textContent = '00:00';
@@ -522,6 +569,7 @@ async function startGame() {
   resetGame();
   hud.overlay.classList.add('hidden');
   hud.upgradeOverlay.classList.add('hidden');
+  hud.bossRewardOverlay.classList.add('hidden');
   hud.pauseOverlay.classList.add('hidden');
 }
 function fireBullet() {
@@ -540,41 +588,24 @@ function fireBullet() {
 function throwBomb() {
   const player = world.player;
   if (!player || player.bombCooldown > 0) return;
-  const angle = player.angle;
-  const model = mesh(new THREE.SphereGeometry(0.13, 10, 8), mat(0x282d31, 0.45, { emissive: 0x7f1d1d, emissiveIntensity: 0.35 }), scene, 0, 0, 0);
-  const bomb = { x: player.x + Math.cos(angle) * 24, y: player.y + Math.sin(angle) * 24, vx: Math.cos(angle) * 260, vy: Math.sin(angle) * 260, age: 0, fuse: 0.72, model };
-  bomb.model.position.copy(toScene(bomb.x, bomb.y, 0.7));
-  world.bombs.push(bomb);
-  player.bombCooldown = 9;
-}
-function detonateBomb(bomb) {
-  scene.remove(bomb.model);
-  const radius = 105;
+  const radius = player.impulseRadius;
+  playImpulseSound();
   for (let i = world.zombies.length - 1; i >= 0; i -= 1) {
     const zombie = world.zombies[i];
-    const distance = dist(bomb.x, bomb.y, zombie.x, zombie.y);
-    if (distance < radius) {
-      damageZombie(zombie, 72 * (1 - distance / (radius * 1.5)));
+    const distance = dist(player.x, player.y, zombie.x, zombie.y);
+    if (distance <= radius) {
+      const falloff = 1 - distance / (radius * 1.5);
+      damageZombie(zombie, player.impulseDamage * falloff);
       zombie.hitFlash = 0.12;
       if (zombie.hp <= 0) defeatZombie(zombie, i);
     }
   }
-  for (const car of world.cars) if (dist(bomb.x, bomb.y, car.x, car.y) < radius + 24) car.hp -= 90;
-  createExplosion(bomb.x, bomb.y, radius, 0xff5d73);
-  hud.status.textContent = 'Bomb detonated!';
+  for (const car of world.cars) if (dist(player.x, player.y, car.x, car.y) <= radius + 24) car.hp -= player.impulseDamage;
+  createExplosion(player.x, player.y, radius, 0xff5d73);
+  player.bombCooldown = player.impulseCooldown;
+  hud.status.textContent = 'Импульс!';
 }
-function updateBombs(dt) {
-  for (let i = world.bombs.length - 1; i >= 0; i -= 1) {
-    const bomb = world.bombs[i];
-    bomb.age += dt; bomb.x += bomb.vx * dt; bomb.y += bomb.vy * dt;
-    const arc = Math.sin(Math.min(1, bomb.age / bomb.fuse) * Math.PI) * 1.25;
-    bomb.model.position.copy(toScene(bomb.x, bomb.y, 0.25 + arc));
-    bomb.model.rotation.x += dt * 8; bomb.model.rotation.z += dt * 6;
-    if (bomb.age >= bomb.fuse) {
-      detonateBomb(bomb); world.bombs.splice(i, 1);
-    }
-  }
-}
+
 function createExplosion(x, y, radius, color = 0xffbb33) {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.045, 6, 24), mat(color, 0.35, { emissive: color, emissiveIntensity: 1.2 }));
   ring.rotation.x = Math.PI / 2;
@@ -609,7 +640,7 @@ function updatePlayer(dt) {
   player.model.rotation.y = Math.PI / 2 - player.angle;
   syncEntity(player);
   player.bombCooldown = Math.max(0, player.bombCooldown - dt);
-  if (input.bomb) { input.bomb = false; throwBomb(); }
+  if (input.bomb) { input.bomb = false; if (player.bombCooldown <= 0) throwBomb(); }
   if (player.invuln > 0) player.invuln -= dt;
   if (player.gunFlash > 0) player.gunFlash -= dt;
   updateWeaponLabel();
@@ -670,6 +701,43 @@ function updateCombat(dt, time) {
       if (world.player.hp <= 0) finishGame();
     }
   }
+}
+const bossRewards = [
+  { id: 'heart', name: 'Сердце титана', desc: '+35 к максимальному здоровью и восстановление 35 здоровья', apply: (p) => { p.maxHp += 35; p.hp = Math.min(p.maxHp, p.hp + 35); } },
+  { id: 'overdrive', name: 'Перегрузка', desc: '+25% урона автоатаке', apply: (p) => { p.damage *= 1.25; } },
+  { id: 'quick-hands', name: 'Быстрые руки', desc: 'Автоатака на 20% быстрее', apply: (p) => { p.fireRate *= 0.8; } },
+  { id: 'shockwave', name: 'Глубокий резонанс', desc: '+35% радиус и урон импульса', apply: (p) => { p.impulseRadius *= 1.35; p.impulseDamage *= 1.35; } },
+  { id: 'wind', name: 'Лёгкий шаг', desc: '+15% скорости передвижения', apply: (p) => { p.speed *= 1.15; } },
+  { id: 'magnet', name: 'Магнитный след', desc: '+40% радиус притяжения спермача', apply: (p) => { p.magnet *= 1.4; } },
+];
+function showBossRewards() {
+  world.paused = true;
+  hud.upgradeOverlay.classList.add('hidden');
+  hud.pauseOverlay.classList.add('hidden');
+  hud.status.textContent = 'Босс повержен — выбери награду';
+  hud.bossRewardChoices.innerHTML = '';
+  const choices = [...bossRewards].sort(() => Math.random() - 0.5).slice(0, 3);
+  choices.forEach((reward, index) => {
+    const button = document.createElement('button');
+    button.className = 'upgrade-option boss-reward-option';
+    button.innerHTML = `<span class="upgrade-number">0${index + 1}</span><strong>${reward.name}</strong><span>${reward.desc}</span><small>ТРОФЕЙ БОССА</small>`;
+    button.addEventListener('click', () => {
+      reward.apply(world.player);
+      hud.bossRewardOverlay.classList.add('hidden');
+      world.paused = false;
+      hud.status.textContent = 'Орда приближается';
+      updatePlayer(0);
+      updateHud();
+      if (world.player.xp >= world.player.xpNext) {
+        world.player.xp -= world.player.xpNext;
+        world.player.level += 1;
+        world.player.xpNext = Math.ceil(world.player.xpNext * 1.32 + 2);
+        showUpgradeChoices();
+      }
+    });
+    hud.bossRewardChoices.appendChild(button);
+  });
+  hud.bossRewardOverlay.classList.remove('hidden');
 }
 const upgrades = [
   { id: 'damage', name: 'Тяжёлые пули', desc: '+30% урона автоатаке', max: 5, apply: (p) => { p.damage *= 1.3; } },
@@ -787,6 +855,12 @@ function updateWave(dt) {
     hud.waveValue.textContent = String(world.wave);
     hud.status.textContent = `ВОЛНА ${world.wave} — ОРДА УСИЛИВАЕТСЯ`;
   }
+  if (world.wave % 5 === 0 && world.bossSpawnedWave !== world.wave) {
+    const point = spawnAroundPlayer(1.15, 1.35);
+    world.zombies.push(createBoss(point.x, point.y));
+    world.bossSpawnedWave = world.wave;
+    hud.status.textContent = `БОСС НА ВОЛНЕ ${world.wave}!`;
+  }
   world.spawnTimer -= dt;
   if (world.spawnTimer <= 0) {
     const count = Math.min(1 + Math.floor(world.wave * 0.6), 7);
@@ -813,6 +887,7 @@ function finishGame() {
   hud.status.textContent = 'Тебя окружили';
   hud.pauseOverlay.classList.add('hidden');
   hud.upgradeOverlay.classList.add('hidden');
+  hud.bossRewardOverlay.classList.add('hidden');
   const card = hud.overlay.querySelector('.card');
   card.innerHTML = `<div class="eyebrow">КОНЕЦ НОЧИ</div><h1>Ты выстоял</h1><p>Время: ${hud.timeValue.textContent}</p><p>Достигнута волна ${world.wave} • Убийств: ${world.kills}</p><button id="restartButton">Ещё одна ночь <span>→</span></button>`;
   document.getElementById('restartButton').addEventListener('click', startGame);
@@ -820,7 +895,9 @@ function finishGame() {
 }
 function updateGame(dt, time) {
   if (!world.running || world.gameOver || world.paused) return;
-  updatePlayer(dt); updateBullets(dt); updateBombs(dt); updatePickups(dt);
+  updatePlayer(dt);
+  if (world.paused || world.gameOver) return;
+  updateBullets(dt); updatePickups(dt);
   if (world.paused || world.gameOver) return;
   updateCombat(dt, time);
   if (world.gameOver) return;
