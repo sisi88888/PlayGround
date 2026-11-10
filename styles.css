@@ -190,6 +190,12 @@ button:disabled { cursor: wait; opacity: 0.7; }
 .upgrade-card { width: min(94vw, 700px); }
 .upgrade-card h1 { font-size: clamp(26px, 4vw, 36px); }
 .upgrade-card p { margin-bottom: 16px; }
+.boss-reward-card { border-color: rgba(255, 190, 96, 0.35); box-shadow: 0 26px 70px rgba(0, 0, 0, 0.48), 0 0 36px rgba(249, 115, 22, 0.12); }
+.boss-reward-card .eyebrow { color: #ffb85c; }
+.boss-reward-option { border-color: rgba(255, 184, 92, 0.3); background: linear-gradient(150deg, rgba(66, 42, 30, 0.9), rgba(31, 23, 24, 0.96)); }
+.boss-reward-option:hover { border-color: rgba(255, 207, 135, 0.8); background: rgba(78, 47, 31, 0.98); }
+.boss-reward-option .upgrade-number,
+.boss-reward-option small { color: #ffbd69; }
 .upgrade-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .upgrade-option {
   display: flex;
