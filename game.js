@@ -677,7 +677,7 @@ const upgrades = [
   { id: 'speed', name: 'Лёгкие ноги', desc: '+12% скорости передвижения', max: 5, apply: (p) => { p.speed *= 1.12; } },
   { id: 'vitality', name: 'Запас сил', desc: '+25 к максимуму здоровья и лечение', max: 5, apply: (p) => { p.maxHp += 25; p.hp = Math.min(p.maxHp, p.hp + 25); } },
   { id: 'armor', name: 'Бронежилет', desc: 'Получаемый урон меньше на 2', max: 5, apply: (p) => { p.armor += 2; } },
-  { id: 'magnet', name: 'Магнит эссенции', desc: 'Подбор эссенции с большего расстояния', max: 5, apply: (p) => { p.magnet += 65; } },
+  { id: 'magnet', name: 'Магнит спермача', desc: 'Подбор спермача с большего расстояния', max: 5, apply: (p) => { p.magnet += 65; } },
   { id: 'orbit', name: 'Орбитальные клинки', desc: 'Клинки вращаются вокруг героя и ранят врагов', max: 4, apply: (p) => { p.orbitLevel += 1; } },
   { id: 'multishot', name: 'Двойной выстрел', desc: '+1 снаряд за атаку', max: 4, apply: (p) => { p.projectileCount += 1; } },
   { id: 'regen', name: 'Регенерация', desc: 'Восстановление 1.2 здоровья в секунду', max: 4, apply: (p) => { p.regen += 1.2; } },
@@ -743,7 +743,7 @@ function updatePickups(dt) {
     item.model.position.copy(toScene(item.x, item.y, 0.42 + Math.sin(item.bob) * 0.07));
     item.model.rotation.y += dt * 1.3;
     if (dist(item.x, item.y, player.x, player.y) < item.radius + player.radius + 6) {
-      if (item.type === 'xp') { awardXP(item.value); if (!world.paused) hud.status.textContent = 'Эссенция собрана'; }
+      if (item.type === 'xp') { awardXP(item.value); if (!world.paused) hud.status.textContent = 'Спермач собран'; }
       else { player.hp = Math.min(player.maxHp, player.hp + 25); hud.status.textContent = 'Здоровье восстановлено'; }
       scene.remove(item.model); world.pickups.splice(i, 1);
       if (world.paused) break;
