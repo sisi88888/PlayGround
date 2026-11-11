@@ -57,10 +57,11 @@ scene.add(fillLight);
 
 const world = {
   width: 3200, height: 2000, running: false, paused: false, gameOver: false, score: 0, kills: 0, wave: 1,
-  elapsed: 0, spawnTimer: 0, zombies: [], bullets: [], pickups: [], explosions: [], cars: [],
+  elapsed: 0, spawnTimer: 0, zombies: [], bullets: [], pickups: [], explosions: [], lightning: [], cars: [],
   player: null, factor: 50, groundScale: 0.819, lastTime: 0, carTimer: 0, bossSpawnedWave: 0,
 };
 const zombieAsset = { root: null, clips: [], failed: false, ready: null };
+const policeAsset = { root: null, failed: false, ready: null };
 let gameStartPending = false;
 const input = {
   keys: new Set(), pointer: { x: 0, y: 0, down: false }, move: { x: 0, y: 0 },
@@ -221,8 +222,37 @@ function mesh(geometry, material, parent, x, y, z, cast = true) {
   parent.add(object);
   return object;
 }
+function createArenaTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#17272b';
+  context.fillRect(0, 0, 128, 128);
+  context.strokeStyle = '#1a2b2f';
+  context.lineWidth = 1;
+  context.strokeRect(0.5, 0.5, 63, 63);
+  context.strokeRect(64.5, 64.5, 63, 63);
+  context.fillStyle = '#1c2d31';
+  for (let i = 0; i < 42; i += 1) {
+    const x = Math.random() * 128;
+    const y = Math.random() * 128;
+    context.fillRect(x, y, 1 + Math.random() * 2, 1);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(14, 11);
+  texture.encoding = THREE.sRGBEncoding;
+  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  return texture;
+}
 function addArena() {
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat(0x132229, 1));
+  const floorMaterial = mat(0xffffff, 1);
+  floorMaterial.map = createArenaTexture();
+  floorMaterial.color.setHex(0xffffff);
+  floorMaterial.needsUpdate = true;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), floorMaterial);
   floor.name = 'arena';
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
@@ -449,14 +479,22 @@ function makeZombieModel(zombie) {
 }
 function makePlayerModel(player) {
   const root = new THREE.Group();
+  const character = new THREE.Group();
+  const fallback = new THREE.Group();
   const uniform = mat(0x315b68);
-  const body = mesh(new THREE.CapsuleGeometry(0.28, 0.45, 4, 8), uniform, root, 0, 0.72, 0);
+  const body = mesh(new THREE.CapsuleGeometry(0.28, 0.45, 4, 8), uniform, fallback, 0, 0.72, 0);
   body.scale.set(1, 0.9, 0.8);
-  mesh(new THREE.SphereGeometry(0.2, 12, 10), mat(0xd0b28a), root, 0, 1.28, 0);
-  mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.11, 10), mat(0x18272c), root, 0, 1.43, 0);
-  mesh(new THREE.BoxGeometry(0.26, 0.12, 0.34), mat(0x3d4c42), root, -0.31, 0.82, 0);
-  const gun = mesh(new THREE.BoxGeometry(0.14, 0.13, 0.68), mat(0x1b262a, 0.45, { metalness: 0.3 }), root, 0, 0.96, 0.45);
+  mesh(new THREE.SphereGeometry(0.2, 12, 10), mat(0xd0b28a), fallback, 0, 1.28, 0);
+  mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.11, 10), mat(0x18272c), fallback, 0, 1.43, 0);
+  mesh(new THREE.BoxGeometry(0.26, 0.12, 0.34), mat(0x3d4c42), fallback, -0.31, 0.82, 0);
+  const gun = mesh(new THREE.BoxGeometry(0.14, 0.13, 0.68), mat(0x1b262a, 0.45, { metalness: 0.3 }), fallback, 0, 0.96, 0.45);
   gun.name = 'gun';
+  for (const side of [-1, 1]) {
+    mesh(new THREE.CapsuleGeometry(0.08, 0.37, 3, 6), uniform, fallback, side * 0.37, 0.83, 0.10).rotation.x = -0.4;
+    mesh(new THREE.CapsuleGeometry(0.11, 0.34, 3, 6), mat(0x202c2f), fallback, side * 0.15, 0.23, 0);
+  }
+  character.add(fallback);
+  root.add(character);
   const orbit = new THREE.Group();
   orbit.name = 'orbiting-blades';
   orbit.visible = false;
@@ -471,13 +509,53 @@ function makePlayerModel(player) {
   }
   root.add(orbit);
   player.orbitModel = orbit;
-  for (const side of [-1, 1]) {
-    mesh(new THREE.CapsuleGeometry(0.08, 0.37, 3, 6), uniform, root, side * 0.37, 0.83, 0.10).rotation.x = -0.4;
-    mesh(new THREE.CapsuleGeometry(0.11, 0.34, 3, 6), mat(0x202c2f), root, side * 0.15, 0.23, 0);
-  }
+  player.character = character;
+  player.fallback = fallback;
   scene.add(root);
   player.model = root;
   syncEntity(player);
+  if (policeAsset.root) applyPoliceAsset(player);
+}
+function applyPoliceAsset(player) {
+  if (!player?.character || !policeAsset.root || player.character.userData.policeModel) return false;
+  const cloneModel = THREE.SkeletonUtils?.clone || ((source) => source.clone(true));
+  const model = cloneModel(policeAsset.root);
+  model.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(model);
+  const size = bounds.getSize(new THREE.Vector3());
+  if (!Number.isFinite(size.y) || size.y <= 0) return false;
+  const center = bounds.getCenter(new THREE.Vector3());
+  const normalized = new THREE.Group();
+  normalized.add(model);
+  model.position.set(-center.x, -bounds.min.y, -center.z);
+  normalized.scale.setScalar(1.7 / size.y);
+  model.traverse((part) => {
+    if (part.isMesh) { part.castShadow = true; part.receiveShadow = true; }
+  });
+  player.character.add(normalized);
+  player.character.userData.policeModel = normalized;
+  player.fallback.visible = false;
+  return true;
+}
+function loadPoliceAsset() {
+  policeAsset.ready = new Promise((resolve) => {
+    if (!THREE.GLTFLoader) {
+      policeAsset.failed = true;
+      console.warn('GLTFLoader unavailable; using procedural police fallback.');
+      resolve(false);
+      return;
+    }
+    new THREE.GLTFLoader().load('public/models/police-officer.glb', (gltf) => {
+      policeAsset.root = gltf.scene;
+      for (const player of [world.player]) if (player) applyPoliceAsset(player);
+      resolve(true);
+    }, undefined, (error) => {
+      policeAsset.failed = true;
+      console.warn('Police model failed to load; using procedural fallback.', error);
+      resolve(false);
+    });
+  });
+  return policeAsset.ready;
 }
 function syncEntity(entity) {
   if (!entity.model) return;
@@ -485,7 +563,7 @@ function syncEntity(entity) {
   entity.model.position.set(position.x, 0, position.z);
 }
 function createPlayer() {
-  const player = { x: world.width / 2, y: world.height / 2, radius: 18, speed: 220, hp: 100, maxHp: 100, fireCooldown: 0, angle: 0, weaponLevel: 1, damage: 24, fireRate: 0.48, projectileCount: 1, magnet: 300, armor: 0, regen: 0, orbitLevel: 0, orbitTimer: 0, impulseRadius: 525, impulseDamage: 72, impulseCooldown: 9, bombCooldown: 0, xp: 0, level: 1, xpNext: 6, upgradeLevels: {}, gunFlash: 0, invuln: 0 };
+  const player = { x: world.width / 2, y: world.height / 2, radius: 18, speed: 220, hp: 100, maxHp: 100, fireCooldown: 0, angle: 0, weaponLevel: 1, damage: 24, fireRate: 0.48, projectileCount: 1, chainLevel: 0, magnet: 300, armor: 0, regen: 0, orbitLevel: 0, orbitTimer: 0, impulseRadius: 525, impulseDamage: 72, impulseCooldown: 9, bombCooldown: 0, xp: 0, level: 1, xpNext: 6, upgradeLevels: {}, gunFlash: 0, invuln: 0 };
   makePlayerModel(player);
   updateWeaponLabel(player);
   return player;
@@ -582,10 +660,12 @@ function addPickup(x, y, type = 'xp', value = 1) {
   world.pickups.push(item);
 }
 function defeatZombie(zombie, index) {
+  const zombieIndex = Number.isInteger(index) && world.zombies[index] === zombie ? index : world.zombies.indexOf(zombie);
+  if (zombieIndex < 0) return;
   world.score += zombie.isBoss ? 10 : 1;
   world.kills += 1;
   scene.remove(zombie.model);
-  world.zombies.splice(index, 1);
+  world.zombies.splice(zombieIndex, 1);
   createExplosion(zombie.x, zombie.y, zombie.isBoss ? 70 : 22, zombie.isBoss ? 0xff5d73 : 0x9ae6b4);
   if (zombie.isBoss) {
     showBossRewards();
@@ -611,15 +691,21 @@ function createCar(x, y) {
   world.cars.push(car);
 }
 function clearEntities() {
-  for (const list of [world.zombies, world.bullets, world.pickups, world.explosions, world.cars]) {
-    for (const entity of list) if (entity.model) scene.remove(entity.model);
+  for (const list of [world.zombies, world.bullets, world.pickups, world.explosions, world.lightning, world.cars]) {
+    for (const entity of list) {
+      if (entity.model) scene.remove(entity.model);
+      if (list === world.lightning && entity.model) {
+        entity.model.geometry.dispose();
+        entity.model.material.dispose();
+      }
+    }
   }
 }
 function resetGame() {
   clearEntities();
   if (world.player?.model) scene.remove(world.player.model);
   world.running = true; world.paused = false; world.gameOver = false; world.score = 0; world.kills = 0; world.wave = 1; world.elapsed = 0; world.spawnTimer = 1.5; world.carTimer = 9999; world.bossSpawnedWave = 0;
-  world.zombies = []; world.bullets = []; world.pickups = []; world.explosions = []; world.cars = [];
+  world.zombies = []; world.bullets = []; world.pickups = []; world.explosions = []; world.lightning = []; world.cars = [];
   world.player = createPlayer();
   hud.status.textContent = 'Орда приближается';
   hud.waveValue.textContent = '1'; hud.scoreValue.textContent = '0'; hud.timeValue.textContent = '00:00';
@@ -719,6 +805,64 @@ function updatePlayer(dt) {
   if (player.gunFlash > 0) player.gunFlash -= dt;
   updateWeaponLabel();
 }
+function createLightning(from, to, strength = 1) {
+  const start = toScene(from.x, from.y, 0.88);
+  const end = toScene(to.x, to.y, 0.88);
+  const points = [start];
+  const segments = 7;
+  for (let i = 1; i < segments; i += 1) {
+    const t = i / segments;
+    const jitter = (Math.random() - 0.5) * 0.34;
+    points.push(new THREE.Vector3(
+      THREE.MathUtils.lerp(start.x, end.x, t) + jitter,
+      0.88 + Math.random() * 0.22,
+      THREE.MathUtils.lerp(start.z, end.z, t) - jitter,
+    ));
+  }
+  points.push(end);
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  const material = new THREE.LineBasicMaterial({ color: 0x8beaff, transparent: true, opacity: 0.96, linewidth: 2 });
+  const bolt = new THREE.Line(geometry, material);
+  scene.add(bolt);
+  world.lightning.push({ model: bolt, life: 0.16, maxLife: 0.16, strength });
+}
+function triggerChainLightning(primary) {
+  const player = world.player;
+  if (!player || player.chainLevel <= 0) return;
+  const maxJumps = player.chainLevel;
+  const jumpRange = 245 + player.chainLevel * 38;
+  const hit = new Set([primary]);
+  let current = primary;
+  for (let jump = 0; jump < maxJumps; jump += 1) {
+    let next = null;
+    let nearest = jumpRange;
+    for (const candidate of world.zombies) {
+      if (hit.has(candidate)) continue;
+      const distance = dist(current.x, current.y, candidate.x, candidate.y);
+      if (distance < nearest) { nearest = distance; next = candidate; }
+    }
+    if (!next) break;
+    hit.add(next);
+    createLightning(current, next, player.chainLevel);
+    damageZombie(next, player.damage * (0.62 + player.chainLevel * 0.08));
+    next.hitFlash = 0.12;
+    if (next.hp <= 0) defeatZombie(next, world.zombies.indexOf(next));
+    current = next;
+  }
+}
+function updateLightning(dt) {
+  for (let i = world.lightning.length - 1; i >= 0; i -= 1) {
+    const effect = world.lightning[i];
+    effect.life -= dt;
+    effect.model.material.opacity = Math.max(0, effect.life / effect.maxLife);
+    if (effect.life <= 0) {
+      scene.remove(effect.model);
+      effect.model.geometry.dispose();
+      effect.model.material.dispose();
+      world.lightning.splice(i, 1);
+    }
+  }
+}
 function updateBullets(dt) {
   for (let i = world.bullets.length - 1; i >= 0; i -= 1) {
     const b = world.bullets[i]; b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
@@ -731,7 +875,8 @@ function updateBullets(dt) {
       if (dist(b.x, b.y, z.x, z.y) < b.radius + z.radius) {
         damageZombie(z, b.damage); z.hitFlash = 0.08;
         scene.remove(b.model); world.bullets.splice(i, 1);
-        if (z.hp <= 0) defeatZombie(z, j);
+        triggerChainLightning(z);
+        if (z.hp <= 0) defeatZombie(z, world.zombies.indexOf(z));
         break;
       }
     }
@@ -822,6 +967,7 @@ const upgrades = [
   { id: 'magnet', name: 'Магнит спермача', desc: 'Подбор спермача с большего расстояния', max: 5, apply: (p) => { p.magnet += 65; } },
   { id: 'orbit', name: 'Орбитальные клинки', desc: 'Шире орбита и сильнее урон по ближайшим врагам', max: 4, apply: (p) => { p.orbitLevel += 1; } },
   { id: 'multishot', name: 'Двойной выстрел', desc: '+1 снаряд за атаку', max: 4, apply: (p) => { p.projectileCount += 1; } },
+  { id: 'chain-lightning', name: 'Грозовой молот', desc: 'Пули запускают молнию в ближайшего врага; +1 прыжок', max: 5, apply: (p) => { p.chainLevel += 1; } },
   { id: 'regen', name: 'Регенерация', desc: 'Восстановление 1.2 здоровья в секунду', max: 4, apply: (p) => { p.regen += 1.2; } },
 ];
 function refreshProgressHud() {
@@ -985,6 +1131,7 @@ function updateGame(dt, time) {
 function tick(timestamp) {
   const dt = Math.min((timestamp - world.lastTime) / 1000 || 0.016, 0.035);
   world.lastTime = timestamp;
+  updateLightning(dt);
   updateGame(dt, timestamp);
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
@@ -1037,4 +1184,5 @@ input.pointer.x = canvasRect.left + canvasRect.width * 0.75;
 input.pointer.y = canvasRect.top + canvasRect.height * 0.5;
 updateCamera(1);
 loadZombieAsset();
+loadPoliceAsset();
 requestAnimationFrame(tick);
