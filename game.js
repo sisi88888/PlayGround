@@ -14,6 +14,18 @@ const hud = {
   bossRewardOverlay: document.getElementById('bossRewardOverlay'),
   bossRewardChoices: document.getElementById('bossRewardChoices'),
   pauseOverlay: document.getElementById('pauseOverlay'),
+  debugOverlay: document.getElementById('debugOverlay'),
+  debugButton: document.getElementById('debugButton'),
+  debugCloseButton: document.getElementById('debugCloseButton'),
+  debugZombieSelect: document.getElementById('debugZombieSelect'),
+  debugUpgradeSelect: document.getElementById('debugUpgradeSelect'),
+  debugSpawnButton: document.getElementById('debugSpawnButton'),
+  debugCompareButton: document.getElementById('debugCompareButton'),
+  debugClearButton: document.getElementById('debugClearButton'),
+  debugApplyUpgradeButton: document.getElementById('debugApplyUpgradeButton'),
+  debugHealButton: document.getElementById('debugHealButton'),
+  debugResetPlayerButton: document.getElementById('debugResetPlayerButton'),
+  debugReadout: document.getElementById('debugReadout'),
   startButton: document.getElementById('startButton'),
   resumeButton: document.getElementById('resumeButton'),
 };
@@ -300,6 +312,7 @@ function applyZombieAsset(zombie) {
   replacement.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
   const root = new THREE.Group();
   root.add(replacement);
+  addZombieVariantDetails(zombie, root, 1);
   addZombieHealthBar(zombie, root);
   if (zombie.model) {
     scene.remove(zombie.model);
@@ -404,6 +417,23 @@ function makeBossModel(zombie) {
   zombie.limbs = root.children.filter((part) => part.geometry && part.geometry.type === 'CapsuleGeometry');
   syncEntity(zombie);
 }
+function addZombieVariantDetails(zombie, root, scale = 1) {
+  const variant = zombie.variant;
+  if (variant.id === 'toxic') {
+    const glow = mat(0x75ff79, 0.3, { emissive: 0x31e94d, emissiveIntensity: 1.6 });
+    for (const side of [-1, 1]) {
+      const canister = mesh(new THREE.CylinderGeometry(0.075 * scale, 0.09 * scale, 0.42 * scale, 8), glow, root, side * 0.39 * scale, 0.83 * scale, -0.2 * scale);
+      canister.rotation.z = side * -0.12;
+      mesh(new THREE.SphereGeometry(0.055 * scale, 8, 6), mat(0xd8ffd0, 0.25, { emissive: 0x72ff7c, emissiveIntensity: 1.2 }), root, side * 0.39 * scale, 1.07 * scale, -0.2 * scale);
+    }
+    mesh(new THREE.SphereGeometry(0.075 * scale, 10, 8), glow, root, 0, 1.45 * scale, 0.22 * scale);
+  } else if (variant.id === 'scout') {
+    const pack = mat(0x253546, 0.8);
+    mesh(new THREE.BoxGeometry(0.38 * scale, 0.42 * scale, 0.18 * scale), pack, root, 0, 0.83 * scale, -0.34 * scale);
+    mesh(new THREE.BoxGeometry(0.58 * scale, 0.075 * scale, 0.11 * scale), mat(0x5cd8f0, 0.36, { emissive: 0x1489bb, emissiveIntensity: 0.8 }), root, 0, 1.48 * scale, 0.19 * scale);
+    mesh(new THREE.BoxGeometry(0.12 * scale, 0.12 * scale, 0.13 * scale), mat(0x90eaff, 0.3, { emissive: 0x42c8ee, emissiveIntensity: 0.8 }), root, 0.23 * scale, 0.88 * scale, 0.17 * scale);
+  }
+}
 function makeZombieModel(zombie) {
   if (zombie.isBoss) { makeBossModel(zombie); return; }
   const root = new THREE.Group();
@@ -469,6 +499,7 @@ function makeZombieModel(zombie) {
     torn.rotation.z = Math.PI;
   }
   root.traverse((part) => { if (part.isMesh) part.userData.baseMaterial = part.material; });
+  addZombieVariantDetails(zombie, root);
   addZombieHealthBar(zombie, root);
   root.scale.setScalar(variant.modelScale || 1);
   scene.add(root);
@@ -577,7 +608,7 @@ function triggerImpulse() {
   input.bomb = true;
 }
 function togglePause() {
-  if (!world.running || world.gameOver || !world.player || !hud.upgradeOverlay.classList.contains('hidden') || !hud.bossRewardOverlay.classList.contains('hidden')) return;
+  if (!world.running || world.gameOver || !world.player || !hud.upgradeOverlay.classList.contains('hidden') || !hud.bossRewardOverlay.classList.contains('hidden') || !hud.debugOverlay.classList.contains('hidden')) return;
   world.paused = !world.paused;
   hud.pauseOverlay.classList.toggle('hidden', !world.paused);
   hud.status.textContent = world.paused ? 'Игра на паузе' : 'Орда приближается';
@@ -587,20 +618,22 @@ function togglePause() {
   }
 }
 const zombieVariants = [
-  { id: 'walker', chance: 0.57, hp: 1, speed: 1, damage: 1, radius: 18, armor: 0, modelScale: 1, tint: 0xffffff, skin: [0x718c58, 0x8e9b64], outfits: [0x4a3e48, 0x38494a, 0x55503e, 0x553941], accent: 0x784353 },
-  { id: 'runner', chance: 0.21, hp: 0.72, speed: 1.62, damage: 0.8, radius: 15, armor: 0, modelScale: 0.92, tint: 0xc3d2ad, skin: [0x8b9b66, 0xa2a66f], outfits: [0x503b38, 0x39464a, 0x5c4c3b], accent: 0xd8954c },
-  { id: 'brute', chance: 0.13, hp: 2.45, speed: 0.62, damage: 1.75, radius: 24, armor: 2, modelScale: 1.2, tint: 0xa6a090, skin: [0x596c4a, 0x73764e], outfits: [0x39383a, 0x463c36, 0x383e3a], accent: 0x78413e },
-  { id: 'guard', chance: 0.09, hp: 1.55, speed: 0.82, damage: 1.2, radius: 20, armor: 8, modelScale: 1.04, tint: 0x9ca9a5, skin: [0x64734e, 0x7d865a], outfits: [0x354447, 0x3c4748, 0x404039], accent: 0xa1743e },
+  { id: 'walker', name: 'Бродяга', chance: 0.45, hp: 1, speed: 1, damage: 1, radius: 18, armor: 0, modelScale: 1, tint: 0xffffff, skin: [0x718c58, 0x8e9b64], outfits: [0x4a3e48, 0x38494a, 0x55503e, 0x553941], accent: 0x784353 },
+  { id: 'runner', name: 'Бегун', chance: 0.18, hp: 0.72, speed: 1.62, damage: 0.8, radius: 15, armor: 0, modelScale: 0.92, tint: 0xc3d2ad, skin: [0x8b9b66, 0xa2a66f], outfits: [0x503b38, 0x39464a, 0x5c4c3b], accent: 0xd8954c },
+  { id: 'brute', name: 'Громила', chance: 0.11, hp: 2.45, speed: 0.62, damage: 1.75, radius: 24, armor: 2, modelScale: 1.2, tint: 0xa6a090, skin: [0x596c4a, 0x73764e], outfits: [0x39383a, 0x463c36, 0x383e3a], accent: 0x78413e },
+  { id: 'guard', name: 'Броневик', chance: 0.09, hp: 1.55, speed: 0.82, damage: 1.2, radius: 20, armor: 8, modelScale: 1.04, tint: 0x9ca9a5, skin: [0x64734e, 0x7d865a], outfits: [0x354447, 0x3c4748, 0x404039], accent: 0xa1743e },
+  { id: 'toxic', name: 'Токсик', chance: 0.08, hp: 1.18, speed: 0.92, damage: 1.3, radius: 19, armor: 0, modelScale: 1.02, tint: 0xa4e59b, skin: [0x5da45f, 0x83bd68], outfits: [0x344c3a, 0x40513b], accent: 0x65ef83 },
+  { id: 'scout', name: 'Разведчик', chance: 0.09, hp: 0.82, speed: 1.28, damage: 0.95, radius: 16, armor: 1, modelScale: 0.96, tint: 0xb9c9de, skin: [0x7b8791, 0x9aa78f], outfits: [0x344052, 0x454451, 0x394b48], accent: 0x63c7e8 },
 ];
-function createZombie(x, y) {
+function createZombie(x, y, forcedVariant = null, isDebug = false) {
   const levelBoost = 1 + (world.wave - 1) * 0.15;
   let roll = Math.random();
-  const variant = zombieVariants.find((entry) => (roll -= entry.chance) < 0) || zombieVariants[0];
+  const variant = forcedVariant || zombieVariants.find((entry) => (roll -= entry.chance) < 0) || zombieVariants[0];
   const maxHp = Math.round((32 + world.wave * 4) * variant.hp);
   const zombie = {
     x, y, variant, radius: variant.radius, speed: (36 + Math.random() * 20) * levelBoost * variant.speed,
     hp: maxHp, maxHp, damage: (10 + world.wave * 1.2) * variant.damage, armor: variant.armor,
-    hitFlash: 0, phase: Math.random() * 6.28, limbs: [],
+    hitFlash: 0, phase: Math.random() * 6.28, limbs: [], isDebug: Boolean(isDebug),
   };
   makeZombieModel(zombie);
   return zombie;
@@ -662,11 +695,14 @@ function addPickup(x, y, type = 'xp', value = 1) {
 function defeatZombie(zombie, index) {
   const zombieIndex = Number.isInteger(index) && world.zombies[index] === zombie ? index : world.zombies.indexOf(zombie);
   if (zombieIndex < 0) return;
-  world.score += zombie.isBoss ? 10 : 1;
-  world.kills += 1;
+  if (!zombie.isDebug) {
+    world.score += zombie.isBoss ? 10 : 1;
+    world.kills += 1;
+  }
   scene.remove(zombie.model);
   world.zombies.splice(zombieIndex, 1);
-  createExplosion(zombie.x, zombie.y, zombie.isBoss ? 70 : 22, zombie.isBoss ? 0xff5d73 : 0x9ae6b4);
+  createExplosion(zombie.x, zombie.y, zombie.isBoss ? 70 : 22, zombie.isBoss ? 0xff5d73 : zombie.variant.accent || 0x9ae6b4);
+  if (zombie.isDebug) return;
   if (zombie.isBoss) {
     showBossRewards();
     return;
@@ -970,6 +1006,110 @@ const upgrades = [
   { id: 'chain-lightning', name: 'Грозовой молот', desc: 'Пули запускают молнию в ближайшего врага; +1 прыжок', max: 5, apply: (p) => { p.chainLevel += 1; } },
   { id: 'regen', name: 'Регенерация', desc: 'Восстановление 1.2 здоровья в секунду', max: 4, apply: (p) => { p.regen += 1.2; } },
 ];
+let debugWasPaused = false;
+function updateDebugReadout(message) {
+  const player = world.player;
+  if (!player) { hud.debugReadout.textContent = message; return; }
+  hud.debugReadout.textContent = `${message} · HP ${Math.round(player.hp)}/${Math.round(player.maxHp)} · ур. ${player.level} · тестовых ${world.zombies.filter((zombie) => zombie.isDebug).length}`;
+}
+function openDebugMenu() {
+  if (!world.running || world.gameOver || !hud.upgradeOverlay.classList.contains('hidden') || !hud.bossRewardOverlay.classList.contains('hidden')) return;
+  debugWasPaused = world.paused;
+  world.paused = true;
+  hud.pauseOverlay.classList.add('hidden');
+  hud.debugOverlay.classList.remove('hidden');
+  input.keys.clear();
+  input.pointer.down = false;
+  releaseStick();
+  hud.status.textContent = 'Тестовая песочница';
+  updateDebugReadout('Пауза включена. Образцы безопасны для статистики.');
+}
+function closeDebugMenu() {
+  if (hud.debugOverlay.classList.contains('hidden')) return;
+  hud.debugOverlay.classList.add('hidden');
+  world.paused = debugWasPaused;
+  hud.pauseOverlay.classList.toggle('hidden', !world.paused);
+  hud.status.textContent = world.paused ? 'Игра на паузе' : 'Орда приближается';
+}
+function spawnDebugZombie(variant, x, y) {
+  const zombie = createZombie(x, y, variant, true);
+  world.zombies.push(zombie);
+  return zombie;
+}
+function clearDebugZombies() {
+  const before = world.zombies.length;
+  world.zombies = world.zombies.filter((zombie) => {
+    if (!zombie.isDebug) return true;
+    scene.remove(zombie.model);
+    return false;
+  });
+  updateDebugReadout(`Убрано образцов: ${before - world.zombies.length}.`);
+}
+function resetDebugPlayer() {
+  if (!world.player) return;
+  const { x, y } = world.player;
+  scene.remove(world.player.model);
+  world.player = createPlayer();
+  world.player.x = x;
+  world.player.y = y;
+  syncEntity(world.player);
+  updatePlayer(0);
+  updateHud();
+  updateDebugReadout('Сборка сброшена к стартовым параметрам.');
+}
+function initializeDebugMenu() {
+  zombieVariants.forEach((variant) => {
+    const option = document.createElement('option');
+    option.value = variant.id;
+    option.textContent = variant.name;
+    hud.debugZombieSelect.appendChild(option);
+  });
+  upgrades.forEach((upgrade) => {
+    const option = document.createElement('option');
+    option.value = upgrade.id;
+    option.textContent = upgrade.name;
+    hud.debugUpgradeSelect.appendChild(option);
+  });
+  hud.debugSpawnButton.addEventListener('click', () => {
+    const variant = zombieVariants.find((entry) => entry.id === hud.debugZombieSelect.value);
+    if (!variant) return;
+    const point = spawnAroundPlayer(0.28, 0.42);
+    spawnDebugZombie(variant, point.x, point.y);
+    updateDebugReadout(`Создан: ${variant.name}.`);
+  });
+  hud.debugCompareButton.addEventListener('click', () => {
+    const centerX = world.player.x;
+    const y = clamp(world.player.y + 105, 28, world.height - 28);
+    const spacing = 105;
+    zombieVariants.forEach((variant, index) => {
+      const x = clamp(centerX + (index - (zombieVariants.length - 1) / 2) * spacing, 28, world.width - 28);
+      spawnDebugZombie(variant, x, y);
+    });
+    updateDebugReadout(`Сравнение: ${zombieVariants.length} типов выставлены рядом.`);
+  });
+  hud.debugClearButton.addEventListener('click', clearDebugZombies);
+  hud.debugApplyUpgradeButton.addEventListener('click', () => {
+    const upgrade = upgrades.find((entry) => entry.id === hud.debugUpgradeSelect.value);
+    if (!upgrade || !world.player) return;
+    const level = world.player.upgradeLevels[upgrade.id] || 0;
+    if (level >= upgrade.max) { updateDebugReadout(`${upgrade.name}: достигнут максимум ${upgrade.max}.`); return; }
+    upgrade.apply(world.player);
+    world.player.upgradeLevels[upgrade.id] = level + 1;
+    updatePlayer(0);
+    updateHud();
+    updateDebugReadout(`${upgrade.name}: уровень ${level + 1}/${upgrade.max}.`);
+  });
+  hud.debugHealButton.addEventListener('click', () => {
+    world.player.hp = world.player.maxHp;
+    world.player.invuln = 0;
+    updateHud();
+    updateDebugReadout('Здоровье полностью восстановлено.');
+  });
+  hud.debugResetPlayerButton.addEventListener('click', resetDebugPlayer);
+  hud.debugButton.addEventListener('click', () => hud.debugOverlay.classList.contains('hidden') ? openDebugMenu() : closeDebugMenu());
+  hud.debugCloseButton.addEventListener('click', closeDebugMenu);
+  hud.debugOverlay.addEventListener('click', (event) => { if (event.target === hud.debugOverlay) closeDebugMenu(); });
+}
 function refreshProgressHud() {
   const player = world.player;
   if (!player) return;
@@ -1142,8 +1282,20 @@ function setPointerPosition(clientX, clientY) {
 }
 window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
-  if (['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright', ' '].includes(key)) event.preventDefault();
-  if (key === 'escape' || key === 'p') {
+  if (['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright', ' ', 'f2'].includes(key)) event.preventDefault();
+  if (key === 'f2') {
+    if (!event.repeat) {
+      if (hud.debugOverlay.classList.contains('hidden')) openDebugMenu();
+      else closeDebugMenu();
+    }
+    return;
+  }
+  if (key === 'escape') {
+    if (!hud.debugOverlay.classList.contains('hidden')) closeDebugMenu();
+    else if (!event.repeat) togglePause();
+    return;
+  }
+  if (key === 'p') {
     if (!event.repeat) togglePause();
     return;
   }
@@ -1179,6 +1331,7 @@ hud.resumeButton.addEventListener('click', togglePause);
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 world.player = createPlayer();
+initializeDebugMenu();
 const canvasRect = canvas.getBoundingClientRect();
 input.pointer.x = canvasRect.left + canvasRect.width * 0.75;
 input.pointer.y = canvasRect.top + canvasRect.height * 0.5;

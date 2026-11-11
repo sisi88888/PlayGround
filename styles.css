@@ -262,6 +262,73 @@ button:disabled { cursor: wait; opacity: 0.7; }
 .action-button small { display: block; margin-top: 5px; font-size: 9px; letter-spacing: 0.1em; opacity: 0.78; }
 .auto-badge { padding: 8px 10px; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; background: var(--panel); color: #d3e2e0; font-size: 9px; font-weight: 800; line-height: 1.25; text-align: center; }
 
+.debug-trigger {
+  margin-top: 6px;
+  padding: 4px 8px;
+  border: 1px solid rgba(117, 230, 190, 0.3);
+  border-radius: 7px;
+  background: rgba(15, 42, 38, 0.88);
+  color: #9af0ca;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.debug-trigger:hover { border-color: rgba(117, 230, 190, 0.75); background: rgba(20, 62, 52, 0.96); }
+.debug-trigger kbd { margin-left: 4px; color: #d5f8e9; font: inherit; letter-spacing: 0.04em; opacity: 0.7; }
+.debug-card { width: min(94vw, 540px); border-color: rgba(92, 229, 162, 0.28); }
+.debug-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.debug-heading .eyebrow { margin-bottom: 6px; }
+.debug-heading h1 { margin-bottom: 0; font-size: clamp(26px, 4vw, 34px); }
+.debug-card > p { margin: 8px 0 15px; font-size: 12px; }
+.debug-close {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #d6e5e3;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.debug-close:hover { background: rgba(255, 255, 255, 0.12); }
+.debug-field { display: grid; gap: 6px; color: #b6ceca; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.debug-field select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid rgba(202, 231, 236, 0.18);
+  border-radius: 9px;
+  background: #101e23;
+  color: var(--text);
+  font: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.debug-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 9px; }
+.debug-actions button {
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid rgba(92, 229, 162, 0.25);
+  border-radius: 9px;
+  background: linear-gradient(160deg, rgba(28, 73, 58, 0.92), rgba(15, 37, 36, 0.96));
+  color: #e9fff4;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.debug-actions button:hover { border-color: rgba(92, 229, 162, 0.7); filter: brightness(1.12); }
+.debug-actions button.secondary { border-color: rgba(202, 231, 236, 0.14); background: rgba(255, 255, 255, 0.045); color: #c8d8d8; }
+.debug-divider { height: 1px; margin: 15px 0 12px; background: rgba(202, 231, 236, 0.12); }
+.debug-section-title { margin-bottom: 9px; color: #8de5ba; font-size: 10px; font-weight: 850; letter-spacing: 0.13em; text-transform: uppercase; }
+.debug-readout { margin-top: 12px; padding: 9px 10px; border: 1px solid rgba(202, 231, 236, 0.1); border-radius: 9px; background: rgba(0, 0, 0, 0.18); color: #c2d8d3; font-size: 11px; line-height: 1.45; }
+.debug-footnote { display: block; margin-top: 10px; color: #82999b; font-size: 9px; line-height: 1.45; }
+
 @media (min-width: 900px) { .touch-pad { display: none; } }
 
 @media (max-width: 899px) {

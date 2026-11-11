@@ -22,6 +22,7 @@
         <div class="panel top-center">
           <div id="title">НОЧЬ НЕ КОНЧАЕТСЯ</div>
           <div id="status">Готовься к орде</div>
+          <button id="debugButton" class="debug-trigger" type="button">DEBUG <kbd>F2</kbd></button>
         </div>
 
         <div class="panel top-right">
@@ -61,6 +62,32 @@
           <h1 id="bossRewardTitle">Выбери награду</h1>
           <p>Босс повержен. Выбери одно из трёх усилений.</p>
           <div id="bossRewardChoices" class="upgrade-choices boss-reward-choices"></div>
+        </div>
+      </div>
+
+      <div id="debugOverlay" class="modal-overlay hidden" aria-modal="true" role="dialog" aria-labelledby="debugTitle">
+        <div class="card debug-card">
+          <div class="debug-heading">
+            <div><div class="eyebrow">ТЕСТОВАЯ ПЕСОЧНИЦА</div><h1 id="debugTitle">Zombie lab</h1></div>
+            <button id="debugCloseButton" class="debug-close" type="button" aria-label="Закрыть отладку">×</button>
+          </div>
+          <p>Проверяй силуэты и экипировку на арене. Открытие меню ставит игру на паузу.</p>
+          <label class="debug-field">Тип заражённого<select id="debugZombieSelect"></select></label>
+          <div class="debug-actions">
+            <button id="debugSpawnButton" type="button">Создать выбранного</button>
+            <button id="debugCompareButton" type="button">Сравнить всех</button>
+            <button id="debugClearButton" class="secondary" type="button">Убрать тестовых</button>
+          </div>
+          <div class="debug-divider"></div>
+          <div class="debug-section-title">Снаряжение и усиления</div>
+          <label class="debug-field">Усиление<select id="debugUpgradeSelect"></select></label>
+          <div class="debug-actions">
+            <button id="debugApplyUpgradeButton" type="button">Применить усиление</button>
+            <button id="debugHealButton" class="secondary" type="button">Полное лечение</button>
+            <button id="debugResetPlayerButton" class="secondary" type="button">Сбросить сборку</button>
+          </div>
+          <div id="debugReadout" class="debug-readout" aria-live="polite">Выбери действие для тестирования.</div>
+          <small class="debug-footnote">F2 — открыть/закрыть · Esc — закрыть · тестовые образцы не дают опыт и убийства</small>
         </div>
       </div>
 
