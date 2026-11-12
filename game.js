@@ -288,6 +288,7 @@ addArena();
 function applyZombieAsset(zombie) {
   if (zombie.isBoss || !zombieAsset.root || !window.THREE.SkeletonUtils) return false;
   const replacement = THREE.SkeletonUtils.clone(zombieAsset.root);
+  replacement.userData.sharedAsset = true;
   replacement.traverse((part) => {
     if (!part.isMesh) return;
     part.castShadow = true;
@@ -557,6 +558,7 @@ function applyPoliceAsset(player) {
   if (!Number.isFinite(size.y) || size.y <= 0) return false;
   const center = bounds.getCenter(new THREE.Vector3());
   const normalized = new THREE.Group();
+  normalized.userData.sharedAsset = true;
   normalized.add(model);
   model.position.set(-center.x, -bounds.min.y, -center.z);
   normalized.scale.setScalar(1.7 / size.y);
@@ -726,13 +728,24 @@ function createCar(x, y) {
   syncEntity(car);
   world.cars.push(car);
 }
+function disposeModel(model) {
+  if (!model) return;
+  model.traverse((part) => {
+    if (part !== model && part.parent?.userData.sharedAsset) return;
+    if (part.userData.sharedAsset) return;
+    if (part.geometry) part.geometry.dispose();
+    if (part.material) {
+      const materials = Array.isArray(part.material) ? part.material : [part.material];
+      materials.forEach((material) => material.dispose());
+    }
+  });
+}
 function clearEntities() {
   for (const list of [world.zombies, world.bullets, world.pickups, world.explosions, world.lightning, world.cars]) {
     for (const entity of list) {
-      if (entity.model) scene.remove(entity.model);
-      if (list === world.lightning && entity.model) {
-        entity.model.geometry.dispose();
-        entity.model.material.dispose();
+      if (entity.model) {
+        scene.remove(entity.model);
+        disposeModel(entity.model);
       }
     }
   }
@@ -983,12 +996,7 @@ function showBossRewards() {
       hud.status.textContent = 'Орда приближается';
       updatePlayer(0);
       updateHud();
-      if (world.player.xp >= world.player.xpNext) {
-        world.player.xp -= world.player.xpNext;
-        world.player.level += 1;
-        world.player.xpNext = Math.ceil(world.player.xpNext * 1.32 + 2);
-        showUpgradeChoices();
-      }
+      advanceLevelIfReady();
     });
     hud.bossRewardChoices.appendChild(button);
   });
@@ -1116,15 +1124,19 @@ function refreshProgressHud() {
   hud.xpFill.style.width = `${clamp(player.xp / player.xpNext * 100, 0, 100)}%`;
   hud.levelValue.textContent = String(player.level);
 }
+function advanceLevelIfReady() {
+  const player = world.player;
+  if (!player || player.xp < player.xpNext) return false;
+  player.xp -= player.xpNext;
+  player.level += 1;
+  player.xpNext = Math.ceil(player.xpNext * 1.32 + 2);
+  showUpgradeChoices();
+  return true;
+}
 function awardXP(amount) {
   const player = world.player;
   player.xp += amount;
-  if (player.xp >= player.xpNext && !world.paused) {
-    player.xp -= player.xpNext;
-    player.level += 1;
-    player.xpNext = Math.ceil(player.xpNext * 1.32 + 2);
-    showUpgradeChoices();
-  }
+  if (!world.paused) advanceLevelIfReady();
   refreshProgressHud();
 }
 function showUpgradeChoices() {
@@ -1144,12 +1156,7 @@ function showUpgradeChoices() {
       hud.upgradeOverlay.classList.add('hidden');
       world.paused = false;
       hud.status.textContent = 'Орда приближается';
-      if (world.player.xp >= world.player.xpNext) {
-        world.player.xp -= world.player.xpNext;
-        world.player.level += 1;
-        world.player.xpNext = Math.ceil(world.player.xpNext * 1.32 + 2);
-        showUpgradeChoices();
-      }
+      advanceLevelIfReady();
       refreshProgressHud();
       updatePlayer(0);
       updateHud();
